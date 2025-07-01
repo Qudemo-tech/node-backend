@@ -1,0 +1,7 @@
+# Ignore secrets and credentials
+.env
+key.json
+
+# Ignore environment-specific folders
+env/
+node_modules/
