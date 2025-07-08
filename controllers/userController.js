@@ -99,68 +99,21 @@ const uploadProfilePicture = async (req, res) => {
     const { userId } = req.params;
     const { imageUrl } = req.body;
 
-    console.log('Upload request received for userId:', userId);
-    console.log('Image URL length:', imageUrl ? imageUrl.length : 0);
-
-    if (!imageUrl) {
-      return res.status(400).json({ error: 'Image URL is required' });
-    }
-
-    // Convert base64 to buffer
-    const base64Data = imageUrl.replace(/^data:image\/[a-z]+;base64,/, '');
-    const buffer = Buffer.from(base64Data, 'base64');
-
-    console.log('Buffer size:', buffer.length);
-
-    // Generate unique filename
-    const filename = `profile-pictures/${userId}-${Date.now()}.jpg`;
-
-    console.log('Attempting to upload to Supabase Storage, filename:', filename);
-
-    // Upload to Supabase Storage
-    const { data: uploadData, error: uploadError } = await supabase.storage
-      .from('avatars') // Make sure this bucket exists in your Supabase
-      .upload(filename, buffer, {
-        contentType: 'image/jpeg',
-        upsert: true
-      });
-
-    if (uploadError) {
-      console.error('Supabase upload error details:', uploadError);
-      return res.status(500).json({ 
-        error: 'Failed to upload image to storage',
-        details: uploadError.message 
-      });
-    }
-
-    console.log('Upload successful, uploadData:', uploadData);
-
-    // Get public URL
-    const { data: urlData } = supabase.storage
-      .from('avatars')
-      .getPublicUrl(filename);
-
-    const publicUrl = urlData.publicUrl;
-    console.log('Public URL generated:', publicUrl);
-
-    // Update user profile with the public URL
     const { data, error } = await supabase
       .from('users')
-      .update({ profile_picture: publicUrl })
+      .update({ profile_picture: imageUrl })
       .eq('id', userId)
       .select()
       .single();
 
     if (error) {
-      console.error('Database update error:', error);
       return res.status(400).json({ error: error.message });
     }
 
-    console.log('Database update successful, user data:', data);
     res.json({ success: true, data });
   } catch (error) {
     console.error('Error uploading profile picture:', error);
-    res.status(500).json({ error: 'Internal server error', details: error.message });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 

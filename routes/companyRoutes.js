@@ -1,3 +1,4 @@
+console.log('companyRoutes loaded');
 const express = require('express');
 const router = express.Router();
 const companyController = require('../controllers/companyController');
@@ -10,6 +11,7 @@ const {
     companyNameSchema,
     bucketNameSchema 
 } = require('../schemas/companySchema');
+const leadController = require('../controllers/leadController');
 
 // Company management routes
 
@@ -26,6 +28,19 @@ router.post('/', auth.authenticateToken, validate(createCompanySchema), companyC
  * @access  Private
  */
 router.get('/', auth.authenticateToken, companyController.getCompanies);
+
+// Add a new lead (protected route)
+router.post('/leads', /* add auth middleware here if needed */ leadController.addLead);
+
+// Add a new user interaction (question/answer)
+router.post('/user-interaction', /* add auth middleware here if needed */ leadController.addUserInteraction);
+
+// Get all leads (protected route)
+console.log('Registering GET /leads route');
+router.get('/leads', auth.authenticateToken, leadController.getLeads);
+
+// Get all user interactions for a lead (protected route)
+router.get('/user-interaction', auth.authenticateToken, leadController.getUserInteractions);
 
 /**
  * @route   GET /api/companies/:companyId
@@ -61,12 +76,5 @@ router.delete('/:companyId', auth.authenticateToken, validate(companyIdSchema, '
  * @access  Private
  */
 router.get('/:companyId/stats', auth.authenticateToken, companyController.getCompanyStats);
-
-/**
- * @route   GET /api/companies/bucket/:bucketName/check
- * @desc    Check if bucket name is available
- * @access  Public
- */
-router.get('/bucket/:bucketName/check', companyController.checkBucketAvailability);
 
 module.exports = router; 

@@ -28,17 +28,6 @@ const createCompanySchema = Joi.object({
         .messages({
             'string.max': 'Description must be less than 500 characters'
         }),
-    bucketName: Joi.string()
-        .pattern(/^[a-z0-9-]+$/)
-        .min(3)
-        .max(63)
-        .required()
-        .messages({
-            'string.pattern.base': 'Bucket name can only contain lowercase letters, numbers, and hyphens',
-            'string.min': 'Bucket name must be at least 3 characters long',
-            'string.max': 'Bucket name must be less than 63 characters',
-            'any.required': 'Bucket name is required'
-        }),
     website: Joi.string()
         .uri()
         .optional()
@@ -115,25 +104,9 @@ const companyNameSchema = Joi.object({
         })
 });
 
-// Bucket name validation
-const bucketNameSchema = Joi.object({
-    bucketName: Joi.string()
-        .pattern(/^[a-z0-9-]+$/)
-        .min(3)
-        .max(63)
-        .required()
-        .messages({
-            'string.pattern.base': 'Bucket name can only contain lowercase letters, numbers, and hyphens',
-            'string.min': 'Bucket name must be at least 3 characters long',
-            'string.max': 'Bucket name must be less than 63 characters',
-            'any.required': 'Bucket name is required'
-        })
-});
-
 module.exports = {
     createCompanySchema,
     updateCompanySchema,
     companyIdSchema,
-    companyNameSchema,
-    bucketNameSchema
+    companyNameSchema
 }; 

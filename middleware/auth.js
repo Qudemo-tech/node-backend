@@ -31,28 +31,25 @@ function getKey(header, callback) {
  * Verify JWT token middleware
  */
 const authenticateToken = (req, res, next) => {
+    console.log('authenticateToken called');
     const authHeader = req.headers['authorization'];
+    console.log('Authorization header:', authHeader);
     const token = authHeader && authHeader.split(' ')[1];
 
     if (!token) {
-        return res.status(401).json({ error: 'No token provided' });
+        console.error('No token provided');
+        return res.status(401).json({ success: false, error: 'No token provided' });
     }
 
     // Try to verify with your own secret first (for email/password users)
     jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
-        if (!err) {
-            req.user = user;
-            return next();
+        if (err) {
+            console.error('JWT verification failed:', err);
+            return res.status(403).json({ success: false, error: 'Invalid token' });
         }
-
-        // If that fails, try to verify with Supabase JWKS (for Google users)
-        jwt.verify(token, getKey, { algorithms: ['RS256'] }, (err, decoded) => {
-            if (err) {
-                return res.status(403).json({ error: 'Invalid token' });
-            }
-            req.user = decoded;
-            next();
-        });
+        req.user = user;
+        console.log('Token verified, user:', user);
+        return next();
     });
 };
 

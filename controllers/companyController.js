@@ -1,17 +1,10 @@
 const { createClient } = require('@supabase/supabase-js');
-const { Storage } = require('@google-cloud/storage');
 
 // Initialize Supabase client
 const supabase = createClient(
     process.env.SUPABASE_URL,
     process.env.SUPABASE_SERVICE_ROLE_KEY
 );
-
-// Initialize Google Cloud Storage
-const storage = new Storage({
-    keyFilename: process.env.GOOGLE_APPLICATION_CREDENTIALS,
-    projectId: process.env.GOOGLE_CLOUD_PROJECT_ID
-});
 
 const companyController = {
     /**
@@ -21,7 +14,7 @@ const companyController = {
         console.log('req.user in createCompany:', req.user);
         try {
             const userId = req.user.userId || req.user.id;
-            const { name, displayName, description, bucketName, website, logo } = req.body;
+            const { name, displayName, description, website, logo } = req.body;
 
             // 1. Check if user already has a company
             const { data: userCompany, error: userCompanyError } = await supabase
@@ -58,46 +51,11 @@ const companyController = {
                 });
             }
 
-            // Check if bucket already exists in GCS
-            try {
-                const bucket = storage.bucket(bucketName);
-                const [exists] = await bucket.exists();
-                
-                if (exists) {
-                    return res.status(400).json({
-                        success: false,
-                        error: 'Bucket name already exists in Google Cloud Storage. Please choose a different name.'
-                    });
-                }
-            } catch (error) {
-                console.error('Error checking bucket existence:', error);
-                return res.status(500).json({
-                    success: false,
-                    error: 'Error checking bucket availability'
-                });
-            }
-
-            // Create GCS bucket
-            try {
-                await storage.createBucket(bucketName, {
-                    location: 'US',
-                    storageClass: 'STANDARD'
-                });
-                console.log(`✅ Created GCS bucket: ${bucketName}`);
-            } catch (error) {
-                console.error('Error creating GCS bucket:', error);
-                return res.status(500).json({
-                    success: false,
-                    error: 'Failed to create Google Cloud Storage bucket'
-                });
-            }
-
             // Create company in database
             console.log('Inserting company:', {
                 user_id: userId,
                 name,
                 display_name: displayName,
-                bucket_name: bucketName,
                 is_active: true,
                 created_at: new Date().toISOString()
             });
@@ -107,7 +65,6 @@ const companyController = {
                     user_id: userId,
                     name,
                     display_name: displayName,
-                    bucket_name: bucketName,
                     is_active: true,
                     created_at: new Date().toISOString()
                 })
@@ -115,14 +72,6 @@ const companyController = {
                 .single();
 
             if (insertError) {
-                // If database insert fails, delete the created bucket
-                try {
-                    await storage.bucket(bucketName).delete();
-                    console.log(`🗑️ Deleted GCS bucket due to database error: ${bucketName}`);
-                } catch (deleteError) {
-                    console.error('Error deleting bucket after database failure:', deleteError);
-                }
-
                 return res.status(500).json({
                     success: false,
                     error: 'Failed to create company in database'
@@ -135,9 +84,7 @@ const companyController = {
                 data: {
                     id: company.id,
                     name: company.name,
-                    displayName: company.display_name,
-                    bucketName: company.bucket_name,
-                    apiEndpoint: `/api/${company.name}/video`
+                    displayName: company.display_name
                 }
             });
 
@@ -156,17 +103,19 @@ const companyController = {
     async getUserCompany(req, res) {
         try {
             const { id: userId } = req.user;
+            console.log('getUserCompany called, userId:', userId);
             const { data: company, error } = await supabase
                 .from('companies')
                 .select('*')
                 .eq('user_id', userId)
                 .single();
-            
+            console.log('Supabase company fetch result:', { company, error });
             if (error) {
                 if (error.code === 'PGRST116') {
                     // This is not an error, it just means the user has no company yet.
                     return res.status(200).json({ success: true, data: null });
                 }
+                console.error('Supabase error in getUserCompany:', error);
                 return res.status(500).json({ success: false, error: 'Failed to fetch company' });
             }
 
