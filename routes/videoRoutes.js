@@ -4,6 +4,16 @@ const videoController = require('../controllers/videoController');
 const { validateRequest } = require('../middleware/validation');
 const Joi = require('joi');
 const auth = require('../middleware/auth');
+const multer = require('multer');
+const path = require('path');
+const storage = multer.diskStorage({
+  destination: 'uploads/',
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname);
+    cb(null, `${Date.now()}-${file.fieldname}${ext}`);
+  }
+});
+const upload = multer({ storage });
 
 // Validation schemas
 const processVideoSchema = Joi.object({
@@ -85,6 +95,13 @@ router.post('/build-index', validateRequest(buildIndexSchema), videoController.b
  * @access  Public
  */
 router.post('/cleanup', videoController.cleanup);
+
+/**
+ * @route   POST /api/video/upload
+ * @desc    Upload a video file and return its URL
+ * @access  Private
+ */
+router.post('/upload', auth.authenticateToken, upload.single('video'), videoController.uploadVideo);
 
 /**
  * @route   POST /api/videos

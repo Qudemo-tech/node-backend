@@ -1,6 +1,7 @@
 const axios = require('axios');
 const { createClient } = require('@supabase/supabase-js');
 require('dotenv').config();
+const path = require('path');
 
 // Initialize Supabase client
 const supabase = createClient(
@@ -474,7 +475,7 @@ const videoController = {
      */
     async createVideos(req, res) {
         try {
-            const { companyId, videoUrls, thumbnailUrl, sources, meetingLink } = req.body;
+            const { companyId, videoUrls, thumbnailUrl, sources, meetingLink, videoPaths } = req.body;
             const userId = req.user.userId || req.user.id;
             
             if (!videoUrls || !Array.isArray(videoUrls) || videoUrls.length === 0) {
@@ -504,17 +505,22 @@ const videoController = {
             
             // For each video URL, call the Python API first, then insert into Supabase only if successful
             const results = [];
-            for (const videoUrl of videoUrls) {
-                // Call Python API first
+            for (let i = 0; i < videoUrls.length; i++) {
+                const videoUrl = videoUrls[i];
+                let localPath = null;
+                // If a corresponding videoPath is provided and the URL is a local upload, use the path
+                if (videoPaths && videoPaths[i] && videoUrl.includes('/uploads/')) {
+                    localPath = videoPaths[i];
+                }
                 let pythonResult = null;
                 let videoRecord = null, videoInsertError = null;
                 let qudemoRecord = null, qudemoInsertError = null;
                 
                 try {
                     const response = await axios.post(`${PYTHON_API_BASE_URL}/process-video/${companyName}`, {
-                        video_url: videoUrl,
+                        video_url: localPath || videoUrl,
                         company_name: companyName,
-                        is_youtube: true,
+                        is_youtube: !videoUrl.includes('/uploads/'),
                         source: sources && sources.length > 0 ? sources[0] : null,
                         meeting_link: meetingLink
                     });
@@ -551,8 +557,8 @@ const videoController = {
                             .insert({
                                 company_id: companyId,
                                 user_id: userId,
-                                video_url: videoUrl,
-                                video_name: videoName  // Store the actual filename used in transcript chunks
+                                video_url: videoUrl, // Always use the public URL
+                                video_name: videoName
                             })
                             .select()
                             .single();
@@ -575,7 +581,7 @@ const videoController = {
                                 title: videoUrl,
                                 video_name: videoName,
                                 description: '',
-                                video_url: videoUrl,
+                                video_url: videoUrl, // Always use the public URL
                                 thumbnail_url: thumbnailUrl,
                                 company_id: companyId,
                                 created_by: userId,
@@ -725,6 +731,24 @@ const videoController = {
                 error: 'Internal server error'
             });
         }
+    },
+
+    /**
+     * Upload a video file and return its URL
+     */
+    async uploadVideo(req, res) {
+      try {
+        if (!req.file) {
+          return res.status(400).json({ success: false, error: 'No file uploaded.' });
+        }
+        // For now, return the local file path as the URL (in production, upload to cloud storage)
+        const videoUrl = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
+        const videoPath = path.resolve(__dirname, '../uploads', req.file.filename);
+        res.json({ success: true, videoUrl, videoPath });
+      } catch (error) {
+        console.error('Video upload error:', error);
+        res.status(500).json({ success: false, error: 'Internal server error' });
+      }
     }
 };
 
