@@ -515,7 +515,21 @@ const videoController = {
                 let pythonResult = null;
                 let videoRecord = null, videoInsertError = null;
                 let qudemoRecord = null, qudemoInsertError = null;
-                
+
+                // Validate companyId and userId before insert
+                if (!companyId || !userId) {
+                    console.error('Missing companyId or userId:', { companyId, userId });
+                    results.push({
+                        videoUrl,
+                        videoInsertError: 'Missing companyId or userId',
+                        videoRecord: null,
+                        qudemoInsertError: 'Missing companyId or userId',
+                        qudemoRecord: null,
+                        pythonResult: null
+                    });
+                    continue;
+                }
+
                 try {
                     const response = await axios.post(`${PYTHON_API_BASE_URL}/process-video/${companyName}`, {
                         video_url: localPath || videoUrl,
@@ -528,7 +542,7 @@ const videoController = {
                 } catch (err) {
                     pythonResult = { success: false, error: err.response?.data?.error || err.message };
                 }
-                
+
                 // Only insert into Supabase if Python succeeded
                 if (pythonResult.success) {
                     // Extract the generated video filename from the Python backend response
@@ -550,7 +564,10 @@ const videoController = {
                         });
                         continue;
                     }
-                    
+
+                    // Log before insert
+                    console.log('Inserting video with:', { companyId, userId, videoUrl, videoName });
+
                     try {
                         const { data: video, error: insertError } = await supabase
                             .from('videos')
@@ -573,7 +590,7 @@ const videoController = {
                         videoInsertError = err;
                         console.error('Video insert exception:', err);
                     }
-                    
+
                     try {
                         const { data: qudemo, error: insertQudemoError } = await supabase
                             .from('qudemos')
@@ -597,7 +614,7 @@ const videoController = {
                         qudemoInsertError = err;
                     }
                 }
-                
+
                 results.push({
                     videoUrl,
                     videoInsertError,
