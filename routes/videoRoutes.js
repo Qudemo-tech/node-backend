@@ -104,6 +104,13 @@ router.post('/cleanup', videoController.cleanup);
 router.post('/upload', auth.authenticateToken, upload.single('video'), videoController.uploadVideo);
 
 /**
+ * @route   GET /api/video/test-auth
+ * @desc    Test authentication endpoint
+ * @access  Private
+ */
+router.get('/test-auth', auth.authenticateToken, videoController.testAuth);
+
+/**
  * @route   POST /api/videos
  * @desc    Submit multiple video URLs for processing (QuDemo creation)
  * @access  Private

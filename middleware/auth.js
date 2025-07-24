@@ -48,7 +48,8 @@ const authenticateToken = (req, res, next) => {
             return res.status(403).json({ success: false, error: 'Invalid token' });
         }
         req.user = user;
-        console.log('Token verified, user:', user);
+        console.log('Token verified, user object:', user);
+        console.log('User ID from token:', user.userId);
         return next();
     });
 };

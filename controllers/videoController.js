@@ -6,7 +6,7 @@ const path = require('path');
 // Initialize Supabase client
 const supabase = createClient(
     process.env.SUPABASE_URL,
-    process.env.SUPABASE_ANON_KEY
+    process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
 // Configuration
@@ -476,7 +476,16 @@ const videoController = {
     async createVideos(req, res) {
         try {
             const { companyId, videoUrls, thumbnailUrl, sources, meetingLink, videoPaths } = req.body;
-            const userId = req.user.userId || req.user.id;
+            
+            // Debug: Log the user object to see what's available
+            console.log('User object from request:', req.user);
+            console.log('User ID extraction attempt:', { 
+                'req.user.userId': req.user?.userId, 
+                'req.user.id': req.user?.id,
+                'req.user': req.user 
+            });
+            
+            const userId = req.user?.userId || req.user?.id;
             
             if (!videoUrls || !Array.isArray(videoUrls) || videoUrls.length === 0) {
                 return res.status(400).json({ success: false, error: 'No video URLs provided.' });
@@ -502,6 +511,19 @@ const videoController = {
             if (!companyName) {
                 return res.status(400).json({ success: false, error: 'Company name not found.' });
             }
+            
+            // Validate required fields before processing
+            if (!companyId) {
+                console.error('Missing companyId in request body');
+                return res.status(400).json({ success: false, error: 'Company ID is required.' });
+            }
+            
+            if (!userId) {
+                console.error('Missing userId - could not extract from token');
+                return res.status(400).json({ success: false, error: 'User authentication required.' });
+            }
+            
+            console.log('Processing videos with:', { companyId, userId, companyName, videoCount: videoUrls.length });
             
             // For each video URL, call the Python API first, then insert into Supabase only if successful
             const results = [];
@@ -567,24 +589,40 @@ const videoController = {
 
                     // Log before insert
                     console.log('Inserting video with:', { companyId, userId, videoUrl, videoName });
+                    console.log('Data types:', { 
+                        companyId: typeof companyId, 
+                        userId: typeof userId,
+                        companyIdValue: companyId,
+                        userIdValue: userId
+                    });
 
                     try {
+                        const insertData = {
+                            company_id: companyId,
+                            user_id: userId,
+                            video_url: videoUrl, // Always use the public URL
+                            video_name: videoName
+                        };
+                        console.log('Supabase insert data:', insertData);
+                        
                         const { data: video, error: insertError } = await supabase
                             .from('videos')
-                            .insert({
-                                company_id: companyId,
-                                user_id: userId,
-                                video_url: videoUrl, // Always use the public URL
-                                video_name: videoName
-                            })
+                            .insert(insertData)
                             .select()
                             .single();
                         videoRecord = video;
                         videoInsertError = insertError;
                         if (insertError) {
                             console.error('Video insert error:', insertError);
+                            console.error('Insert error details:', {
+                                message: insertError.message,
+                                details: insertError.details,
+                                hint: insertError.hint,
+                                code: insertError.code
+                            });
                         } else {
                             console.log(`Successfully inserted video record with video_name: ${videoName}`);
+                            console.log('Inserted video record:', video);
                         }
                     } catch (err) {
                         videoInsertError = err;
@@ -758,12 +796,37 @@ const videoController = {
         if (!req.file) {
           return res.status(400).json({ success: false, error: 'No file uploaded.' });
         }
+        
+        // Debug: Log user information
+        console.log('Upload request user info:', req.user);
+        console.log('User ID from upload:', req.user?.userId || req.user?.id);
+        
         // For now, return the local file path as the URL (in production, upload to cloud storage)
         const videoUrl = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
         const videoPath = path.resolve(__dirname, '../uploads', req.file.filename);
         res.json({ success: true, videoUrl, videoPath });
       } catch (error) {
         console.error('Video upload error:', error);
+        res.status(500).json({ success: false, error: 'Internal server error' });
+      }
+    },
+
+    /**
+     * Test endpoint to verify authentication
+     */
+    async testAuth(req, res) {
+      try {
+        console.log('Test auth - User object:', req.user);
+        console.log('Test auth - User ID:', req.user?.userId || req.user?.id);
+        
+        res.json({ 
+          success: true, 
+          user: req.user,
+          userId: req.user?.userId || req.user?.id,
+          message: 'Authentication test successful' 
+        });
+      } catch (error) {
+        console.error('Test auth error:', error);
         res.status(500).json({ success: false, error: 'Internal server error' });
       }
     }
