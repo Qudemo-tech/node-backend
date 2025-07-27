@@ -301,7 +301,7 @@ class AsyncJobQueue extends EventEmitter {
             }
 
             // Call Python API for video processing
-            console.log(`🎥 Calling Python API for Loom video processing: ${videoUrl}`);
+            console.log(`🎥 Processing Loom video: ${videoUrl}`);
             
             const payload = {
                 video_url: videoUrl,
@@ -316,15 +316,10 @@ class AsyncJobQueue extends EventEmitter {
                 payload.build_index = buildIndex;
             }
 
-            console.log(`📤 Sending payload to Python API:`, JSON.stringify(payload, null, 2));
-
             const response = await axios.post(`${PYTHON_API_BASE_URL}/process-video/${companyName}`, payload, {
                 timeout: 300000, // 5 minutes
                 headers: { 'Content-Type': 'application/json' }
             });
-
-            console.log(`📥 Python API response status: ${response.status}`);
-            console.log(`📥 Python API response data:`, JSON.stringify(response.data, null, 2));
 
             if (!response.data) {
                 throw new Error('No response data from Python API');
@@ -357,8 +352,6 @@ class AsyncJobQueue extends EventEmitter {
                 throw new Error(`Company not found: ${companyName}`);
             }
 
-            console.log(`✅ Found company ID: ${company.id}`);
-
             // Save video data to database
             const videoData = {
                 id: video_id,
@@ -371,8 +364,6 @@ class AsyncJobQueue extends EventEmitter {
                 created_at: new Date().toISOString()
             };
 
-            console.log(`💾 Inserting video data:`, JSON.stringify(videoData, null, 2));
-
             const { error: videoError } = await supabase
                 .from('videos')
                 .insert(videoData);
@@ -382,7 +373,7 @@ class AsyncJobQueue extends EventEmitter {
                 throw new Error(`Database error: ${videoError.message}`);
             }
 
-            console.log(`✅ Video inserted successfully`);
+            console.log(`✅ Video inserted successfully: ${video_id}`);
 
             // Insert into qudemos table if this is a QuDemo creation
             if (createQuDemo) {
@@ -400,8 +391,6 @@ class AsyncJobQueue extends EventEmitter {
                     video_name: video_id
                 };
 
-                console.log(`💾 Inserting qudemo data:`, JSON.stringify(qudemoData, null, 2));
-
                 const { error: qudemoError } = await supabase
                     .from('qudemos')
                     .insert(qudemoData);
@@ -411,7 +400,7 @@ class AsyncJobQueue extends EventEmitter {
                     throw new Error(`Qudemo database error: ${qudemoError.message}`);
                 }
 
-                console.log(`✅ Qudemo inserted successfully`);
+                console.log(`✅ Qudemo inserted successfully: ${video_id}`);
             }
 
             this.emit('jobProgress', { 
@@ -421,12 +410,11 @@ class AsyncJobQueue extends EventEmitter {
                 message: 'Loom video processing completed successfully' 
             });
 
-            console.log(`🎉 Video processing completed successfully for: ${videoUrl}`);
+            console.log(`🎉 Video processing completed successfully: ${videoUrl}`);
             return { video_id, status: 'completed' };
             
         } catch (error) {
             console.error(`❌ Loom video processing failed for job ${job.id}:`, error.message);
-            console.error(`❌ Full error:`, error);
             throw error;
         }
     }
