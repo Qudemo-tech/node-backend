@@ -10,7 +10,7 @@ router.get('/memory', auth.authenticateToken, queueController.getMemoryStatus);
 router.post('/clear-cache', auth.authenticateToken, queueController.clearCache);
 router.post('/clear-video', auth.authenticateToken, queueController.clearVideoFromCache);
 
-// Queue status and monitoring routes
+// Queue monitoring routes
 router.get('/monitor', queueController.monitorQueues);
 
 // Job management routes (protected)

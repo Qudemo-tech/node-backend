@@ -26,6 +26,71 @@ const queueController = {
         }
     },
 
+    async getHealthStatus(req, res) {
+        try {
+            const queueStatus = asyncQueue.getQueueStatus();
+            const memoryStatus = await checkMemoryUsage();
+            
+            const isHealthy = memoryStatus.memoryUsage < (parseInt(process.env.MEMORY_THRESHOLD_MB) || 1600);
+            
+            res.json({
+                success: true,
+                data: {
+                    status: isHealthy ? 'healthy' : 'warning',
+                    queueStatus,
+                    memory: memoryStatus,
+                    timestamp: new Date().toISOString()
+                }
+            });
+        } catch (error) {
+            console.error('❌ Health status error:', error);
+            res.status(500).json({
+                success: false,
+                error: 'Failed to get health status'
+            });
+        }
+    },
+
+    async getMemoryStatus(req, res) {
+        try {
+            const memoryStatus = await checkMemoryUsage();
+            
+            res.json({
+                success: true,
+                data: {
+                    ...memoryStatus,
+                    timestamp: new Date().toISOString()
+                }
+            });
+        } catch (error) {
+            console.error('❌ Memory status error:', error);
+            res.status(500).json({
+                success: false,
+                error: 'Failed to get memory status'
+            });
+        }
+    },
+
+    async clearCache(req, res) {
+        try {
+            asyncQueue.clearProcessedVideos();
+            
+            res.json({
+                success: true,
+                message: 'Cache cleared successfully',
+                data: {
+                    clearedAt: new Date().toISOString()
+                }
+            });
+        } catch (error) {
+            console.error('❌ Clear cache error:', error);
+            res.status(500).json({
+                success: false,
+                error: 'Failed to clear cache'
+            });
+        }
+    },
+
     async getJobDetails(req, res) {
         try {
             const { queueType, jobId } = req.params;
