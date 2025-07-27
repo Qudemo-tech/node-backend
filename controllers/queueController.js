@@ -274,6 +274,40 @@ const queueController = {
                 error: 'Failed to monitor queues'
             });
         }
+    },
+
+    /**
+     * Clear specific video from processed cache
+     */
+    async clearVideoFromCache(req, res) {
+        try {
+            const { videoUrl, companyName } = req.body;
+            
+            if (!videoUrl || !companyName) {
+                return res.status(400).json({
+                    success: false,
+                    error: 'Video URL and company name are required'
+                });
+            }
+
+            asyncQueue.clearSpecificVideo(videoUrl, companyName);
+            
+            res.json({
+                success: true,
+                message: 'Video cleared from cache successfully',
+                data: {
+                    videoUrl,
+                    companyName,
+                    clearedAt: new Date().toISOString()
+                }
+            });
+        } catch (error) {
+            console.error('Clear video from cache error:', error);
+            res.status(500).json({
+                success: false,
+                error: 'Failed to clear video from cache'
+            });
+        }
     }
 };
 

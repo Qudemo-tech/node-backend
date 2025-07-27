@@ -3,8 +3,14 @@ const router = express.Router();
 const queueController = require('../controllers/queueController');
 const auth = require('../middleware/auth');
 
+// Queue management routes
+router.get('/status', auth.authenticateToken, queueController.getQueueStatus);
+router.get('/health', auth.authenticateToken, queueController.getHealthStatus);
+router.get('/memory', auth.authenticateToken, queueController.getMemoryStatus);
+router.post('/clear-cache', auth.authenticateToken, queueController.clearCache);
+router.post('/clear-video', auth.authenticateToken, queueController.clearVideoFromCache);
+
 // Queue status and monitoring routes
-router.get('/status', queueController.getQueueStatus);
 router.get('/monitor', queueController.monitorQueues);
 
 // Job management routes (protected)
