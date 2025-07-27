@@ -160,10 +160,19 @@ class AsyncJobQueue extends EventEmitter {
         // Process video jobs
         while (this.activeVideoJobs < this.maxConcurrentVideos) {
             const job = this.videoQueue.getNext();
-            if (!job) break;
+            if (!job) {
+                // No more video jobs in queue
+                break;
+            }
             
             this.activeVideoJobs++;
             this.videoQueue.processing.add(job.id);
+            
+            // Add a small delay between starting video jobs to prevent overwhelming Python API
+            if (this.activeVideoJobs > 1) {
+                console.log(`⏳ Adding 3-second delay before starting video job ${job.id} to prevent API overload...`);
+                await this.sleep(3000);
+            }
             
             this.processVideoJob(job).catch(error => {
                 console.error(`❌ Video job ${job.id} failed:`, error);
@@ -174,7 +183,10 @@ class AsyncJobQueue extends EventEmitter {
         // Process QA jobs
         while (this.activeQAJobs < this.maxConcurrentQA) {
             const job = this.qaQueue.getNext();
-            if (!job) break;
+            if (!job) {
+                // No more QA jobs in queue
+                break;
+            }
             
             this.activeQAJobs++;
             this.qaQueue.processing.add(job.id);
@@ -183,6 +195,21 @@ class AsyncJobQueue extends EventEmitter {
                 console.error(`❌ QA job ${job.id} failed:`, error);
                 this.handleJobFailure(job, error);
             });
+        }
+
+        // Log queue status every 30 seconds when idle
+        const now = Date.now();
+        if (!this.lastStatusLog || now - this.lastStatusLog > 30000) {
+            const videoCounts = this.videoQueue.getCounts();
+            const qaCounts = this.qaQueue.getCounts();
+            
+            if (videoCounts.queued === 0 && qaCounts.queued === 0 && 
+                this.activeVideoJobs === 0 && this.activeQAJobs === 0) {
+                console.log('💤 Queue is idle - waiting for new jobs...');
+            } else {
+                console.log(`📊 Queue status - Video: ${videoCounts.queued} queued, ${this.activeVideoJobs} active | QA: ${qaCounts.queued} queued, ${this.activeQAJobs} active`);
+            }
+            this.lastStatusLog = now;
         }
     }
 
@@ -289,15 +316,31 @@ class AsyncJobQueue extends EventEmitter {
         const { videoUrl, companyName, isLoom, source, meetingLink, userId, createQuDemo, buildIndex } = job.data;
         
         try {
-            // Check if Python API is healthy first
-            try {
-                const healthResponse = await axios.get(`${PYTHON_API_BASE_URL}/health`, {
-                    timeout: 5000 // 5 seconds
-                });
-                console.log(`✅ Python API health check passed: ${healthResponse.data.status}`);
-            } catch (healthError) {
-                console.error(`❌ Python API health check failed: ${healthError.message}`);
-                throw new Error(`Python API is not available: ${healthError.message}`);
+            // Check if Python API is healthy first (with retry logic)
+            let healthCheckPassed = false;
+            let healthError = null;
+            
+            for (let attempt = 1; attempt <= 3; attempt++) {
+                try {
+                    const healthResponse = await axios.get(`${PYTHON_API_BASE_URL}/health`, {
+                        timeout: 15000 // 15 seconds (increased from 5)
+                    });
+                    console.log(`✅ Python API health check passed (attempt ${attempt}): ${healthResponse.data.status}`);
+                    healthCheckPassed = true;
+                    break;
+                } catch (error) {
+                    healthError = error;
+                    console.warn(`⚠️ Python API health check attempt ${attempt} failed: ${error.message}`);
+                    if (attempt < 3) {
+                        console.log(`🔄 Retrying health check in 2 seconds...`);
+                        await this.sleep(2000);
+                    }
+                }
+            }
+            
+            if (!healthCheckPassed) {
+                console.error(`❌ Python API health check failed after 3 attempts: ${healthError.message}`);
+                throw new Error(`Python API is not available after 3 attempts: ${healthError.message}`);
             }
 
             // Call Python API for video processing
