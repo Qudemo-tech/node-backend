@@ -1,7 +1,6 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { createClient } = require('@supabase/supabase-js');
-const { Storage } = require('@google-cloud/storage');
 const { generateToken, verifyRefreshToken } = require('../middleware/auth');
 
 // Initialize Supabase client
@@ -9,12 +8,6 @@ const supabase = createClient(
     process.env.SUPABASE_URL,
     process.env.SUPABASE_SERVICE_ROLE_KEY
 );
-
-// Initialize Google Cloud Storage
-const storage = new Storage({
-    keyFilename: process.env.GOOGLE_APPLICATION_CREDENTIALS,
-    projectId: process.env.GOOGLE_CLOUD_PROJECT_ID
-});
 
 const authController = {
     /**
@@ -96,59 +89,18 @@ const authController = {
                                 created_at: new Date().toISOString()
                             });
                     } else {
-                        // Create new company with GCS bucket
-                        const bucketName = `${companyName.toLowerCase().replace(/[^a-z0-9-]/g, '-')}-${Date.now()}`;
-                        
-                        // Check if bucket exists
-                        try {
-                            const bucket = storage.bucket(bucketName);
-                            const [exists] = await bucket.exists();
-                            
-                            if (exists) {
-                                return res.status(400).json({
-                                    success: false,
-                                    error: 'Company name already exists. Please choose a different name.'
-                                });
-                            }
-                        } catch (error) {
-                            console.error('Error checking bucket existence:', error);
-                        }
-
-                        // Create GCS bucket
-                        try {
-                            await storage.createBucket(bucketName, {
-                                location: 'US',
-                                storageClass: 'STANDARD'
-                            });
-                            console.log(`✅ Created GCS bucket: ${bucketName}`);
-                        } catch (error) {
-                            console.error('Error creating GCS bucket:', error);
-                            return res.status(500).json({
-                                success: false,
-                                error: 'Failed to create Google Cloud Storage bucket'
-                            });
-                        }
-
-                        // Create company in database
+                        // Create new company (without GCS bucket)
                         const { data: company, error: companyError } = await supabase
                             .from('companies')
                             .insert({
                                 name: companyName,
-                                display_name: companyName,
-                                bucket_name: bucketName,
                                 is_active: true,
                                 created_at: new Date().toISOString()
                             })
-                            .select()
+                            .select('id, name')
                             .single();
 
                         if (companyError) {
-                            // Delete bucket if company creation fails
-                            try {
-                                await storage.bucket(bucketName).delete();
-                            } catch (deleteError) {
-                                console.error('Error deleting bucket after company failure:', deleteError);
-                            }
                             throw new Error('Failed to create company');
                         }
 
@@ -163,7 +115,7 @@ const authController = {
                             });
                     }
                 } catch (error) {
-                    console.error('Company creation error:', error);
+                    console.error('Error creating/linking company:', error);
                     // Continue with user creation even if company creation fails
                 }
             }

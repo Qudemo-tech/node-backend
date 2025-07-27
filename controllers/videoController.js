@@ -20,14 +20,6 @@ class VideoProcessingService {
     }
 
     /**
-     * Get company bucket configuration
-     */
-    async getCompanyBucket(companyName) {
-        // Sanitize company name for bucket name
-        return companyName.toLowerCase().replace(/[^a-z0-9_-]/g, '_');
-    }
-
-    /**
      * Check if the Python API is healthy
      */
     async checkHealth() {
@@ -54,9 +46,6 @@ class VideoProcessingService {
         try {
             if (!payload.company_name) {
                 throw new Error("Company name is required for video processing");
-            }
-            if (!payload.bucket_name) {
-                throw new Error("Bucket name is required for video processing");
             }
             const response = await axios.post(`${this.apiBaseUrl}/process-video/${companyName}`, payload);
             return {
@@ -120,12 +109,9 @@ class VideoProcessingService {
                 throw new Error("Company name is required");
             }
 
-            const bucketName = await this.getCompanyBucket(companyName);
-
             const payload = {
                 video_url: videoUrl,
                 company_name: companyName,
-                bucket_name: bucketName,
                 build_index: buildIndex
             };
 
@@ -162,7 +148,7 @@ class VideoProcessingService {
     }
 
     /**
-     * Rebuild FAISS index from all transcript chunks
+     * Rebuild FAISS index for a company
      * @param {string} companyName - Company name for bucket routing
      */
     async rebuildFaissIndex(companyName = null) {
@@ -171,11 +157,8 @@ class VideoProcessingService {
                 throw new Error("Company name is required for FAISS index rebuilding");
             }
 
-            const bucketName = await this.getCompanyBucket(companyName);
-
             const payload = {
                 company_name: companyName,
-                bucket_name: bucketName,
                 rebuild: true
             };
 
@@ -208,12 +191,9 @@ class VideoProcessingService {
                 throw new Error("Company name is required");
             }
 
-            const bucketName = await this.getCompanyBucket(companyName);
-
             const payload = {
                 question: question,
-                company_name: companyName,
-                bucket_name: bucketName
+                company_name: companyName
             };
 
             const response = await axios.post(`${this.apiBaseUrl}/ask-question`, payload);
@@ -240,11 +220,8 @@ class VideoProcessingService {
                 throw new Error("Company name is required for video mapping audit");
             }
 
-            const bucketName = await this.getCompanyBucket(companyName);
-
             const payload = {
-                company_name: companyName,
-                bucket_name: bucketName
+                company_name: companyName
             };
 
             const response = await axios.post(`${this.apiBaseUrl}/audit-mappings`, payload);
@@ -318,11 +295,11 @@ const videoController = {
                 });
             }
 
-            // Get company bucket
+            // Get company info
             const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
             const { data: company, error: companyError } = await supabase
                 .from('companies')
-                .select('bucket_name')
+                .select('id, name')
                 .eq('name', companyName)
                 .single();
 
@@ -333,12 +310,10 @@ const videoController = {
                 });
             }
 
-            const bucketName = company.bucket_name;
-
             console.log(`🎥 Queueing Loom video processing for company: ${companyName}`);
 
             const jobData = {
-                videoUrl, companyName, bucketName, isLoom: true,
+                videoUrl, companyName, isLoom: true,
                 source: source || null, meetingLink: meeting_link || null,
                 userId: req.user?.userId || req.user?.id, timestamp: new Date().toISOString()
             };
@@ -389,11 +364,11 @@ const videoController = {
                 });
             }
 
-            // Get company bucket
+            // Get company info
             const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
             const { data: company, error: companyError } = await supabase
                 .from('companies')
-                .select('bucket_name')
+                .select('id, name')
                 .eq('name', companyName)
                 .single();
 
@@ -404,12 +379,10 @@ const videoController = {
                 });
             }
 
-            const bucketName = company.bucket_name;
-
             console.log(`🎥 Queueing Loom video processing and indexing for company: ${companyName}`);
 
             const jobData = {
-                videoUrl, companyName, bucketName, isLoom: true,
+                videoUrl, companyName, isLoom: true,
                 source: source || null, meetingLink: meeting_link || null,
                 userId: req.user?.userId || req.user?.id, timestamp: new Date().toISOString(),
                 buildIndex: true
@@ -533,7 +506,7 @@ const videoController = {
                 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
                 const { data: company, error: companyError } = await supabase
                     .from('companies')
-                    .select('name, bucket_name')
+                    .select('name')
                     .eq('id', companyId)
                     .single();
 
@@ -566,11 +539,11 @@ const videoController = {
                 });
             }
 
-            // Get company bucket
+            // Get company info
             const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
             const { data: company, error: companyError } = await supabase
                 .from('companies')
-                .select('bucket_name')
+                .select('id, name')
                 .eq('name', finalCompanyName)
                 .single();
 
@@ -581,14 +554,11 @@ const videoController = {
                 });
             }
 
-            const bucketName = company.bucket_name;
-
             console.log(`🎥 Queueing Loom video creation for company: ${finalCompanyName}`);
 
             const jobData = {
                 videoUrl, 
                 companyName: finalCompanyName, 
-                bucketName, 
                 isLoom: true,
                 source: source || null, 
                 meetingLink: meetingLink || null,

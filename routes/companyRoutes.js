@@ -8,8 +8,7 @@ const {
     createCompanySchema, 
     updateCompanySchema, 
     companyIdSchema, 
-    companyNameSchema,
-    bucketNameSchema 
+    companyNameSchema
 } = require('../schemas/companySchema');
 const leadController = require('../controllers/leadController');
 

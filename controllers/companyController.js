@@ -245,8 +245,7 @@ const companyController = {
             const { companyId } = req.params;
             const updateData = req.body;
 
-            // Remove bucket_name from update data (should not be changed)
-            delete updateData.bucket_name;
+            // Remove name from update data (should not be changed)
             delete updateData.name;
 
             const { data: company, error } = await supabase
@@ -297,7 +296,7 @@ const companyController = {
             // Get company details first
             const { data: company, error: fetchError } = await supabase
                 .from('companies')
-                .select('name, bucket_name')
+                .select('name')
                 .eq('id', companyId)
                 .single();
 
@@ -330,60 +329,17 @@ const companyController = {
                 });
             }
 
-            // Note: We don't delete the GCS bucket to preserve data
-            // The bucket can be manually deleted if needed
-
             res.json({
                 success: true,
                 message: 'Company deleted successfully',
                 data: {
-                    companyName: company.name,
-                    bucketName: company.bucket_name,
-                    note: 'GCS bucket preserved for data safety'
+                    companyId,
+                    companyName: company.name
                 }
             });
 
         } catch (error) {
             console.error('Delete company error:', error);
-            res.status(500).json({
-                success: false,
-                error: 'Internal server error'
-            });
-        }
-    },
-
-    /**
-     * Check bucket availability
-     */
-    async checkBucketAvailability(req, res) {
-        try {
-            const { bucketName } = req.params;
-
-            try {
-                const bucket = storage.bucket(bucketName);
-                const [exists] = await bucket.exists();
-                
-                res.json({
-                    success: true,
-                    data: {
-                        bucketName,
-                        available: !exists,
-                        message: exists ? 'Bucket name already exists' : 'Bucket name is available'
-                    }
-                });
-            } catch (error) {
-                res.json({
-                    success: true,
-                    data: {
-                        bucketName,
-                        available: true,
-                        message: 'Bucket name is available'
-                    }
-                });
-            }
-
-        } catch (error) {
-            console.error('Check bucket availability error:', error);
             res.status(500).json({
                 success: false,
                 error: 'Internal server error'
@@ -401,7 +357,7 @@ const companyController = {
             // Get company details
             const { data: company, error: companyError } = await supabase
                 .from('companies')
-                .select('bucket_name')
+                .select('id, name')
                 .eq('id', companyId)
                 .single();
 
@@ -412,22 +368,16 @@ const companyController = {
                 });
             }
 
-            // Get bucket statistics from GCS
+            // Get company statistics (no GCS access)
             try {
-                const bucket = storage.bucket(company.bucket_name);
-                const [files] = await bucket.getFiles();
-                
                 const stats = {
-                    totalFiles: files.length,
-                    totalSize: files.reduce((acc, file) => acc + (file.metadata?.size || 0), 0),
-                    fileTypes: files.reduce((acc, file) => {
-                        const ext = file.name.split('.').pop()?.toLowerCase();
-                        acc[ext] = (acc[ext] || 0) + 1;
-                        return acc;
-                    }, {}),
-                    transcripts: files.filter(f => f.name.includes('transcript')).length,
-                    srtFiles: files.filter(f => f.name.endsWith('.srt')).length,
-                    faissIndexes: files.filter(f => f.name.includes('faiss')).length
+                    totalFiles: 0, // Placeholder, no GCS access
+                    totalSize: 0, // Placeholder, no GCS access
+                    fileTypes: {}, // Placeholder, no GCS access
+                    transcripts: 0, // Placeholder, no GCS access
+                    srtFiles: 0, // Placeholder, no GCS access
+                    faissIndexes: 0, // Placeholder, no GCS access
+                    note: 'GCS statistics not available' // Placeholder, no GCS access
                 };
 
                 res.json({

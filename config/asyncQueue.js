@@ -281,7 +281,7 @@ class AsyncJobQueue extends EventEmitter {
         const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
         const PYTHON_API_BASE_URL = process.env.PYTHON_API_BASE_URL || 'http://localhost:5001';
         
-        const { videoUrl, companyName, bucketName, isLoom, source, meetingLink, userId, createQuDemo, buildIndex } = job.data;
+        const { videoUrl, companyName, isLoom, source, meetingLink, userId, createQuDemo, buildIndex } = job.data;
         
         try {
             // Check if Python API is healthy first
@@ -301,7 +301,6 @@ class AsyncJobQueue extends EventEmitter {
             const payload = {
                 video_url: videoUrl,
                 company_name: companyName,
-                bucket_name: bucketName,
                 is_loom: isLoom,
                 source: source,
                 meeting_link: meetingLink
