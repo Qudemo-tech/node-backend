@@ -1,7 +1,8 @@
 const supabase = require('../config/database');
+const asyncQueue = require('../config/asyncQueue');
 const { v4: uuidv4 } = require('uuid');
 
-// Create new interaction
+// Create new interaction - Now using queue for heavy operations
 const createInteraction = async (req, res) => {
   try {
     const interactionData = {
@@ -152,35 +153,86 @@ const updateInteraction = async (req, res) => {
   }
 };
 
-// Add question to interaction
+// Add question to interaction - Now using queue for AI processing
 const addQuestion = async (req, res) => {
-  try {
-    const { interactionId } = req.params;
-    const { question, answer } = req.body;
+    try {
+        const { interactionId } = req.params;
+        const { question, answer, companyName } = req.body;
 
-    const questionData = {
-      id: uuidv4(),
-      interaction_id: interactionId,
-      question,
-      answer,
-      created_at: new Date().toISOString()
-    };
+        if (answer) {
+            // If answer is provided, save directly
+            const questionData = {
+                id: uuidv4(),
+                interaction_id: interactionId,
+                question,
+                answer,
+                created_at: new Date().toISOString()
+            };
 
-    const { data, error } = await supabase
-      .from('questions')
-      .insert(questionData)
-      .select()
-      .single();
+            const { data, error } = await supabase
+                .from('questions')
+                .insert(questionData)
+                .select()
+                .single();
 
-    if (error) {
-      return res.status(400).json({ error: error.message });
+            if (error) {
+                return res.status(400).json({ error: error.message });
+            }
+
+            return res.status(201).json({ success: true, data });
+        }
+
+        if (companyName) {
+            // If no answer and companyName, queue for AI processing
+            const jobData = {
+                interactionId,
+                question,
+                companyName,
+                userId: req.user?.userId || req.user?.id,
+                timestamp: new Date().toISOString()
+            };
+
+            const jobId = await asyncQueue.addQAJob(jobData, parseInt(process.env.QUEUE_QA_PRIORITY) || 1);
+            
+            const queueStatus = asyncQueue.getQueueStatus();
+            const waitingJobs = queueStatus.qa.waiting;
+
+            return res.status(202).json({
+                success: true,
+                message: 'Question queued for AI processing',
+                data: {
+                    jobId: jobId,
+                    queuePosition: waitingJobs,
+                    estimatedWaitTime: `${Math.ceil(waitingJobs / 5) * 10}-${Math.ceil(waitingJobs / 5) * 30} seconds`,
+                    status: 'queued'
+                }
+            });
+        }
+
+        // Fallback: save question without answer
+        const questionData = {
+            id: uuidv4(),
+            interaction_id: interactionId,
+            question,
+            answer: null,
+            created_at: new Date().toISOString()
+        };
+
+        const { data, error } = await supabase
+            .from('questions')
+            .insert(questionData)
+            .select()
+            .single();
+
+        if (error) {
+            return res.status(400).json({ error: error.message });
+        }
+
+        res.status(201).json({ success: true, data });
+    } catch (error) {
+        console.error('❌ Add question error:', error);
+        res.status(500).json({ error: 'Internal server error' });
     }
-
-    res.status(201).json({ success: true, data });
-  } catch (error) {
-    console.error('Error adding question:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
 };
 
 // Get questions for interaction

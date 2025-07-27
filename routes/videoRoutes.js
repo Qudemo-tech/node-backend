@@ -18,19 +18,17 @@ const upload = multer({ storage });
 // Validation schemas
 const processVideoSchema = Joi.object({
     videoUrl: Joi.string().uri().required().messages({
-        'string.uri': 'videoUrl must be a valid URL',
+        'string.uri': 'videoUrl must be a valid Loom URL',
         'any.required': 'videoUrl is required'
     }),
-    isYouTube: Joi.boolean().default(true),
     companyName: Joi.string().optional()
 });
 
 const processAndIndexSchema = Joi.object({
     videoUrl: Joi.string().uri().required().messages({
-        'string.uri': 'videoUrl must be a valid URL',
+        'string.uri': 'videoUrl must be a valid Loom URL',
         'any.required': 'videoUrl is required'
     }),
-    isYouTube: Joi.boolean().default(true),
     buildIndex: Joi.boolean().default(true),
     companyName: Joi.string().optional()
 });
@@ -60,6 +58,49 @@ const companyNameSchema = Joi.object({
         })
 });
 
+// Flexible schema for /videos endpoint to handle different field names (Loom videos only)
+const createVideosSchema = Joi.object({
+    // Video URL can come in different formats (must be Loom)
+    video_url: Joi.string().uri().optional(),
+    videoUrl: Joi.string().uri().optional(),
+    url: Joi.string().uri().optional(),
+    
+    // Company can be identified by ID or name
+    companyId: Joi.string().uuid().optional(),
+    company_id: Joi.string().uuid().optional(),
+    companyName: Joi.string().optional(),
+    company_name: Joi.string().optional(),
+    
+    // Optional fields
+    source: Joi.string().optional(),
+    meetingLink: Joi.string().allow(null, '').optional(),
+    meeting_link: Joi.string().allow(null, '').optional(),
+    
+    // At least one video URL and one company identifier is required
+}).custom((value, helpers) => {
+    const hasVideoUrl = value.video_url || value.videoUrl || value.url;
+    const hasCompanyId = value.companyId || value.company_id;
+    const hasCompanyName = value.companyName || value.company_name;
+    
+    if (!hasVideoUrl) {
+        return helpers.error('any.invalid', { message: 'Video URL is required' });
+    }
+    
+    if (!hasCompanyId && !hasCompanyName) {
+        return helpers.error('any.invalid', { message: 'Company ID or company name is required' });
+    }
+    
+    // Validate that video URL is a Loom URL
+    const videoUrl = value.video_url || value.videoUrl || value.url;
+    if (!videoUrl.includes('loom.com')) {
+        return helpers.error('any.invalid', { message: 'Only Loom video URLs are supported' });
+    }
+    
+    return value;
+}).messages({
+    'any.invalid': '{{#message}}'
+});
+
 // Global video routes (default bucket)
 /**
  * @route   GET /api/video/health
@@ -70,14 +111,14 @@ router.get('/health', videoController.checkHealth);
 
 /**
  * @route   POST /api/video/process
- * @desc    Process a video (download, transcribe, upload to GCS)
+ * @desc    Process a Loom video (download, transcribe, upload to GCS)
  * @access  Public
  */
 router.post('/process', validateRequest(processVideoSchema), videoController.processVideo);
 
 /**
  * @route   POST /api/video/process-and-index
- * @desc    Process video and build FAISS index
+ * @desc    Process Loom video and build FAISS index
  * @access  Public
  */
 router.post('/process-and-index', validateRequest(processAndIndexSchema), videoController.processAndIndex);
@@ -112,10 +153,55 @@ router.get('/test-auth', auth.authenticateToken, videoController.testAuth);
 
 /**
  * @route   POST /api/videos
- * @desc    Submit multiple video URLs for processing (QuDemo creation)
+ * @desc    Submit Loom video URLs for processing (QuDemo creation)
  * @access  Private
  */
-router.post('/videos', auth.authenticateToken, videoController.createVideos);
+router.post('/videos', auth.authenticateToken, validateRequest(createVideosSchema), videoController.createVideos);
+
+/**
+ * @route   POST /api/video/debug
+ * @desc    Debug endpoint to see what data is being sent
+ * @access  Private
+ */
+router.post('/debug', auth.authenticateToken, (req, res) => {
+    console.log('🔍 DEBUG: Received request data:');
+    console.log('Headers:', req.headers);
+    console.log('Body:', req.body);
+    console.log('Query:', req.query);
+    console.log('Params:', req.params);
+    
+    res.json({
+        success: true,
+        message: 'Debug data logged',
+        receivedData: {
+            headers: req.headers,
+            body: req.body,
+            query: req.query,
+            params: req.params
+        }
+    });
+});
+
+/**
+ * @route   POST /api/video/test-no-validation
+ * @desc    Test endpoint without validation to see if controller works
+ * @access  Private
+ */
+router.post('/test-no-validation', auth.authenticateToken, videoController.createVideos);
+
+/**
+ * @route   GET /api/video/test-auth-simple
+ * @desc    Simple authentication test endpoint
+ * @access  Private
+ */
+router.get('/test-auth-simple', auth.authenticateToken, (req, res) => {
+    res.json({
+        success: true,
+        message: 'Authentication successful',
+        user: req.user,
+        timestamp: new Date().toISOString()
+    });
+});
 
 /**
  * @route   POST /api/video/rebuild-index
@@ -148,14 +234,14 @@ router.get('/:companyName/health', videoController.checkHealth);
 
 /**
  * @route   POST /api/video/:companyName/process
- * @desc    Process a video for specific company
+ * @desc    Process a Loom video for specific company
  * @access  Public
  */
 router.post('/:companyName/process', videoController.processVideo);
 
 /**
  * @route   POST /api/video/:companyName/process-and-index
- * @desc    Process video and build FAISS index for specific company
+ * @desc    Process Loom video and build FAISS index for specific company
  * @access  Public
  */
 router.post('/:companyName/process-and-index', videoController.processAndIndex);

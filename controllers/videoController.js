@@ -1,5 +1,6 @@
 const axios = require('axios');
 const { createClient } = require('@supabase/supabase-js');
+const asyncQueue = require('../config/asyncQueue');
 require('dotenv').config();
 const path = require('path');
 
@@ -45,7 +46,7 @@ class VideoProcessingService {
     }
 
     /**
-     * Process a video (download, transcribe, upload to GCS) with full payload
+     * Process a Loom video (download, transcribe, upload to GCS) with full payload
      * @param {object} payload - All required fields for the Python API
      * @param {string} companyName - Company name for logging/routing
      */
@@ -104,32 +105,40 @@ class VideoProcessingService {
     }
 
     /**
-     * Process video and build FAISS index in one operation
-     * @param {string} videoUrl - YouTube URL or direct video URL
-     * @param {boolean} isYouTube - Whether the URL is a YouTube URL
-     * @param {boolean} buildIndex - Whether to build the FAISS index
+     * Process and index a Loom video
+     * @param {string} videoUrl - Loom video URL
+     * @param {boolean} buildIndex - Whether to build FAISS index
      * @param {string} companyName - Company name for bucket routing
      */
-    async processAndIndex(videoUrl, isYouTube = true, buildIndex = true, companyName = null) {
+    async processAndIndex(videoUrl, buildIndex = true, companyName = null) {
         try {
-            const processResult = await this.processVideo(videoUrl, isYouTube, companyName);
-            
-            if (!processResult.success) {
-                return processResult;
+            if (!videoUrl) {
+                throw new Error("Video URL is required");
             }
 
-            if (buildIndex) {
-                const indexResult = await this.buildFaissIndex(null, companyName);
-                if (!indexResult.success) {
-                    return indexResult;
-                }
+            if (!companyName) {
+                throw new Error("Company name is required");
             }
 
-            return processResult;
+            const bucketName = await this.getCompanyBucket(companyName);
+
+            const payload = {
+                video_url: videoUrl,
+                company_name: companyName,
+                bucket_name: bucketName,
+                build_index: buildIndex
+            };
+
+            const response = await axios.post(`${this.apiBaseUrl}/process-and-index`, payload);
+
+            return {
+                success: true,
+                data: response.data
+            };
         } catch (error) {
             return {
                 success: false,
-                error: error.message
+                error: error.response?.data?.error || error.message
             };
         }
     }
@@ -162,9 +171,15 @@ class VideoProcessingService {
                 throw new Error("Company name is required for FAISS index rebuilding");
             }
 
-            const response = await axios.post(`${this.apiBaseUrl}/rebuild-index`, {
-                company_name: companyName
-            });
+            const bucketName = await this.getCompanyBucket(companyName);
+
+            const payload = {
+                company_name: companyName,
+                bucket_name: bucketName,
+                rebuild: true
+            };
+
+            const response = await axios.post(`${this.apiBaseUrl}/rebuild-index`, payload);
 
             return {
                 success: true,
@@ -181,18 +196,27 @@ class VideoProcessingService {
     /**
      * Ask a question about company's video content
      * @param {string} question - The question to ask
-     * @param {string} companyName - Company name
+     * @param {string} companyName - Company name for bucket routing
      */
     async askQuestion(question, companyName) {
         try {
-            if (!companyName) {
-                throw new Error("Company name is required for asking questions");
+            if (!question) {
+                throw new Error("Question is required");
             }
 
-            const response = await axios.post(`${this.apiBaseUrl}/ask-question`, {
+            if (!companyName) {
+                throw new Error("Company name is required");
+            }
+
+            const bucketName = await this.getCompanyBucket(companyName);
+
+            const payload = {
                 question: question,
-                company_name: companyName
-            });
+                company_name: companyName,
+                bucket_name: bucketName
+            };
+
+            const response = await axios.post(`${this.apiBaseUrl}/ask-question`, payload);
 
             return {
                 success: true,
@@ -208,7 +232,7 @@ class VideoProcessingService {
 
     /**
      * Audit video mappings for a company
-     * @param {string} companyName - Company name
+     * @param {string} companyName - Company name for bucket routing
      */
     async auditVideoMappings(companyName) {
         try {
@@ -216,9 +240,14 @@ class VideoProcessingService {
                 throw new Error("Company name is required for video mapping audit");
             }
 
-            const response = await axios.post(`${this.apiBaseUrl}/audit-mappings`, {
-                company_name: companyName
-            });
+            const bucketName = await this.getCompanyBucket(companyName);
+
+            const payload = {
+                company_name: companyName,
+                bucket_name: bucketName
+            };
+
+            const response = await axios.post(`${this.apiBaseUrl}/audit-mappings`, payload);
 
             return {
                 success: true,
@@ -233,6 +262,7 @@ class VideoProcessingService {
     }
 }
 
+// Create a singleton instance
 const videoService = new VideoProcessingService();
 
 // Controller methods
@@ -243,7 +273,7 @@ const videoController = {
     async checkHealth(req, res) {
         try {
             const result = await videoService.checkHealth();
-
+            
             if (result.success) {
                 res.json({
                     success: true,
@@ -251,169 +281,175 @@ const videoController = {
                     data: result.data
                 });
             } else {
-                res.status(500).json({
+                res.status(503).json({
                     success: false,
-                    error: result.error
+                    error: 'Python API is not healthy',
+                    details: result.error
                 });
             }
         } catch (error) {
-            console.error('Health check error:', error);
+            console.error('❌ Health check error:', error);
             res.status(500).json({
                 success: false,
-                error: 'Internal server error'
+                error: 'Failed to check Python API health'
             });
         }
     },
 
     /**
-     * Process a video (company-specific)
+     * Process a Loom video (download, transcribe, upload to GCS)
      */
     async processVideo(req, res) {
         try {
-            const { videoUrl, isYouTube = true } = req.body;
-            const companyName = req.params.companyName || req.body.companyName;
-
-            if (!videoUrl) {
+            const { video_url: videoUrl, company_name: companyName, source, meeting_link } = req.body;
+            
+            if (!videoUrl || !companyName) {
                 return res.status(400).json({
                     success: false,
-                    error: 'videoUrl is required'
+                    error: 'Video URL and company name are required'
                 });
             }
 
-            if (!companyName) {
+            // Validate Loom video URL
+            if (!videoUrl.includes('loom.com') || !videoUrl.startsWith('http')) {
                 return res.status(400).json({
                     success: false,
-                    error: 'companyName is required'
+                    error: 'Invalid Loom video URL. Only Loom videos are supported.'
                 });
             }
 
-            console.log(`Processing video for company: ${companyName}`);
+            // Get company bucket
+            const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+            const { data: company, error: companyError } = await supabase
+                .from('companies')
+                .select('bucket_name')
+                .eq('name', companyName)
+                .single();
 
-            // Fetch company bucket name from database
-            let bucketName = null;
-            try {
-                const { data: company, error } = await supabase
-                    .from('companies')
-                    .select('bucket_name')
-                    .eq('name', companyName)
-                    .single();
-                
-                if (error) {
-                    console.error('Error fetching company bucket:', error);
-                    return res.status(400).json({
-                        success: false,
-                        error: 'Company not found or bucket not configured'
-                    });
-                }
-                
-                if (company && company.bucket_name) {
-                    bucketName = company.bucket_name;
-                } else {
-                    return res.status(400).json({
-                        success: false,
-                        error: 'Company bucket not configured'
-                    });
-                }
-            } catch (error) {
-                console.error('Error fetching company data:', error);
-                return res.status(500).json({
+            if (companyError || !company) {
+                return res.status(404).json({
                     success: false,
-                    error: 'Failed to fetch company data'
+                    error: 'Company not found'
                 });
             }
 
-            // Send all required fields to Python API
-            const payload = {
-                video_url: videoUrl,
-                company_name: companyName,
-                bucket_name: bucketName,
-                is_youtube: isYouTube,
-                source: req.body.source || null,
-                meeting_link: req.body.meeting_link || null
+            const bucketName = company.bucket_name;
+
+            console.log(`🎥 Queueing Loom video processing for company: ${companyName}`);
+
+            const jobData = {
+                videoUrl, companyName, bucketName, isLoom: true,
+                source: source || null, meetingLink: meeting_link || null,
+                userId: req.user?.userId || req.user?.id, timestamp: new Date().toISOString()
             };
 
-            const response = await videoService.processVideo(payload, companyName);
+            const jobId = await asyncQueue.addVideoJob(jobData, parseInt(process.env.QUEUE_VIDEO_PRIORITY) || 2);
+            
+            const queueStatus = asyncQueue.getQueueStatus();
+            const waitingJobs = queueStatus.video.waiting;
 
-            if (response.success) {
-                res.json({
-                    success: true,
-                    message: 'Video processed successfully',
-                    data: response.data
-                });
-            } else {
-                res.status(500).json({
-                    success: false,
-                    error: response.error
-                });
-            }
+            res.json({
+                success: true,
+                message: 'Loom video processing queued successfully',
+                data: {
+                    jobId: jobId,
+                    queuePosition: waitingJobs,
+                    estimatedWaitTime: `${Math.ceil(waitingJobs / 2) * 2}-${Math.ceil(waitingJobs / 2) * 5} minutes`,
+                    status: 'queued'
+                }
+            });
         } catch (error) {
-            console.error('Video processing error:', error);
-            res.status(500).json({
-                success: false,
-                error: 'Internal server error'
+            console.error('❌ Video processing queue error:', error);
+            res.status(500).json({ 
+                success: false, 
+                error: 'Failed to queue video processing' 
             });
         }
     },
 
     /**
-     * Process video and build index (company-specific)
+     * Process and index a Loom video
      */
     async processAndIndex(req, res) {
         try {
-            const { videoUrl, isYouTube = true, buildIndex = true } = req.body;
-            const companyName = req.params.companyName || req.body.companyName;
-
-            if (!videoUrl) {
+            const { video_url: videoUrl, company_name: companyName, source, meeting_link } = req.body;
+            
+            if (!videoUrl || !companyName) {
                 return res.status(400).json({
                     success: false,
-                    error: 'videoUrl is required'
+                    error: 'Video URL and company name are required'
                 });
             }
 
-            if (!companyName) {
+            // Validate Loom video URL
+            if (!videoUrl.includes('loom.com') || !videoUrl.startsWith('http')) {
                 return res.status(400).json({
                     success: false,
-                    error: 'companyName is required'
+                    error: 'Invalid Loom video URL. Only Loom videos are supported.'
                 });
             }
 
-            console.log(`Processing and indexing video for company: ${companyName}`);
+            // Get company bucket
+            const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+            const { data: company, error: companyError } = await supabase
+                .from('companies')
+                .select('bucket_name')
+                .eq('name', companyName)
+                .single();
 
-            const result = await videoService.processAndIndex(videoUrl, isYouTube, buildIndex, companyName);
-
-            if (result.success) {
-                res.json({
-                    success: true,
-                    message: 'Video processed and indexed successfully',
-                    data: result.data
-                });
-            } else {
-                res.status(500).json({
+            if (companyError || !company) {
+                return res.status(404).json({
                     success: false,
-                    error: result.error
+                    error: 'Company not found'
                 });
             }
+
+            const bucketName = company.bucket_name;
+
+            console.log(`🎥 Queueing Loom video processing and indexing for company: ${companyName}`);
+
+            const jobData = {
+                videoUrl, companyName, bucketName, isLoom: true,
+                source: source || null, meetingLink: meeting_link || null,
+                userId: req.user?.userId || req.user?.id, timestamp: new Date().toISOString(),
+                buildIndex: true
+            };
+
+            const jobId = await asyncQueue.addVideoJob(jobData, parseInt(process.env.QUEUE_VIDEO_PRIORITY) || 2);
+            
+            const queueStatus = asyncQueue.getQueueStatus();
+            const waitingJobs = queueStatus.video.waiting;
+
+            res.json({
+                success: true,
+                message: 'Loom video processing and indexing queued successfully',
+                data: {
+                    jobId: jobId,
+                    queuePosition: waitingJobs,
+                    estimatedWaitTime: `${Math.ceil(waitingJobs / 2) * 2}-${Math.ceil(waitingJobs / 2) * 5} minutes`,
+                    status: 'queued'
+                }
+            });
         } catch (error) {
-            console.error('Process and index error:', error);
-            res.status(500).json({
-                success: false,
-                error: 'Internal server error'
+            console.error('❌ Video processing and indexing queue error:', error);
+            res.status(500).json({ 
+                success: false, 
+                error: 'Failed to queue video processing and indexing' 
             });
         }
     },
 
     /**
-     * Build FAISS index (company-specific)
+     * Build FAISS index
      */
     async buildIndex(req, res) {
         try {
-            const { newChunks } = req.body;
-            const companyName = req.params.companyName || req.body.companyName;
+            const { newChunks, companyName } = req.body;
 
             if (!companyName) {
                 return res.status(400).json({
                     success: false,
-                    error: 'companyName is required'
+                    error: 'Company name is required'
                 });
             }
 
@@ -434,16 +470,16 @@ const videoController = {
                 });
             }
         } catch (error) {
-            console.error('Build index error:', error);
+            console.error('❌ Build index error:', error);
             res.status(500).json({
                 success: false,
-                error: 'Internal server error'
+                error: 'Failed to build FAISS index'
             });
         }
     },
 
     /**
-     * Cleanup temporary files
+     * Clean up temporary files
      */
     async cleanup(req, res) {
         try {
@@ -462,211 +498,144 @@ const videoController = {
                 });
             }
         } catch (error) {
-            console.error('Cleanup error:', error);
+            console.error('❌ Cleanup error:', error);
             res.status(500).json({
                 success: false,
-                error: 'Internal server error'
+                error: 'Failed to cleanup temporary files'
             });
         }
     },
 
     /**
-     * Create QuDemo: process multiple video URLs
+     * Create videos (QuDemo creation) - Loom videos only
      */
     async createVideos(req, res) {
         try {
-            const { companyId, videoUrls, thumbnailUrl, sources, meetingLink, videoPaths } = req.body;
+            // Handle multiple possible field names from frontend
+            const videoUrl = req.body.video_url || req.body.videoUrl || req.body.url;
+            const companyId = req.body.companyId || req.body.company_id;
+            const companyName = req.body.company_name || req.body.companyName;
+            const source = req.body.source || req.body.meetingLink || req.body.meeting_link;
+            const meetingLink = req.body.meetingLink || req.body.meeting_link;
             
-            // Debug: Log the user object to see what's available
-            console.log('User object from request:', req.user);
-            console.log('User ID extraction attempt:', { 
-                'req.user.userId': req.user?.userId, 
-                'req.user.id': req.user?.id,
-                'req.user': req.user 
+            console.log('📝 Received Loom video creation request:', {
+                videoUrl,
+                companyId,
+                companyName,
+                source,
+                meetingLink,
+                body: req.body
             });
-            
-            const userId = req.user?.userId || req.user?.id;
-            
-            if (!videoUrls || !Array.isArray(videoUrls) || videoUrls.length === 0) {
-                return res.status(400).json({ success: false, error: 'No video URLs provided.' });
-            }
-            
-            // Fetch company name and bucket from companyId
-            let companyName = null;
-            let bucketName = null;
-            if (companyId) {
-                const { data: company, error } = await supabase
+
+            // If we have companyId but not companyName, fetch company name from database
+            let finalCompanyName = companyName;
+            if (companyId && !companyName) {
+                const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+                const { data: company, error: companyError } = await supabase
                     .from('companies')
                     .select('name, bucket_name')
                     .eq('id', companyId)
                     .single();
-                if (company && company.name) {
-                    companyName = company.name;
-                }
-                if (company && company.bucket_name) {
-                    bucketName = company.bucket_name;
-                }
-            }
-            
-            if (!companyName) {
-                return res.status(400).json({ success: false, error: 'Company name not found.' });
-            }
-            
-            // Validate required fields before processing
-            if (!companyId) {
-                console.error('Missing companyId in request body');
-                return res.status(400).json({ success: false, error: 'Company ID is required.' });
-            }
-            
-            if (!userId) {
-                console.error('Missing userId - could not extract from token');
-                return res.status(400).json({ success: false, error: 'User authentication required.' });
-            }
-            
-            console.log('Processing videos with:', { companyId, userId, companyName, videoCount: videoUrls.length });
-            
-            // For each video URL, call the Python API first, then insert into Supabase only if successful
-            const results = [];
-            for (let i = 0; i < videoUrls.length; i++) {
-                const videoUrl = videoUrls[i];
-                let localPath = null;
-                // If a corresponding videoPath is provided and the URL is a local upload, use the path
-                if (videoPaths && videoPaths[i] && videoUrl.includes('/uploads/')) {
-                    localPath = videoPaths[i];
-                }
-                let pythonResult = null;
-                let videoRecord = null, videoInsertError = null;
-                let qudemoRecord = null, qudemoInsertError = null;
 
-                // Validate companyId and userId before insert
-                if (!companyId || !userId) {
-                    console.error('Missing companyId or userId:', { companyId, userId });
-                    results.push({
-                        videoUrl,
-                        videoInsertError: 'Missing companyId or userId',
-                        videoRecord: null,
-                        qudemoInsertError: 'Missing companyId or userId',
-                        qudemoRecord: null,
-                        pythonResult: null
+                if (companyError || !company) {
+                    return res.status(404).json({
+                        success: false,
+                        error: 'Company not found with the provided ID'
                     });
-                    continue;
                 }
+                finalCompanyName = company.name;
+            } else if (!companyName && !companyId) {
+                return res.status(400).json({
+                    success: false,
+                    error: 'Company ID or company name is required'
+                });
+            }
 
-                try {
-                    const response = await axios.post(`${PYTHON_API_BASE_URL}/process-video/${companyName}`, {
-                        video_url: localPath || videoUrl,
-                        company_name: companyName,
-                        is_youtube: !videoUrl.includes('/uploads/'),
-                        source: sources && sources.length > 0 ? sources[0] : null,
-                        meeting_link: meetingLink
-                    });
-                    pythonResult = { success: true, data: response.data };
-                } catch (err) {
-                    pythonResult = { success: false, error: err.response?.data?.error || err.message };
+            if (!videoUrl) {
+                return res.status(400).json({
+                    success: false,
+                    error: 'Video URL is required'
+                });
+            }
+
+            // Validate Loom video URL
+            if (!videoUrl.includes('loom.com') || !videoUrl.startsWith('http')) {
+                return res.status(400).json({
+                    success: false,
+                    error: 'Invalid Loom video URL. Only Loom videos are supported.'
+                });
+            }
+
+            // Get company bucket
+            const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+            const { data: company, error: companyError } = await supabase
+                .from('companies')
+                .select('bucket_name')
+                .eq('name', finalCompanyName)
+                .single();
+
+            if (companyError || !company) {
+                return res.status(404).json({
+                    success: false,
+                    error: 'Company not found'
+                });
+            }
+
+            const bucketName = company.bucket_name;
+
+            console.log(`🎥 Queueing Loom video creation for company: ${finalCompanyName}`);
+
+            const jobData = {
+                videoUrl, 
+                companyName: finalCompanyName, 
+                bucketName, 
+                isLoom: true,
+                source: source || null, 
+                meetingLink: meetingLink || null,
+                userId: req.user?.userId || req.user?.id, 
+                timestamp: new Date().toISOString(),
+                createQuDemo: true
+            };
+
+            const jobId = await asyncQueue.addVideoJob(jobData, parseInt(process.env.QUEUE_VIDEO_PRIORITY) || 2);
+            
+            const queueStatus = asyncQueue.getQueueStatus();
+            const waitingJobs = queueStatus.video.queued;
+
+            res.json({
+                success: true,
+                message: 'Loom video creation queued successfully',
+                data: {
+                    jobId: jobId,
+                    queuePosition: waitingJobs,
+                    estimatedWaitTime: `${Math.ceil(waitingJobs / 2) * 2}-${Math.ceil(waitingJobs / 2) * 5} minutes`,
+                    status: 'queued'
                 }
-
-                // Only insert into Supabase if Python succeeded
-                if (pythonResult.success) {
-                    // Extract the generated video filename from the Python backend response
-                    let videoName = null;
-                    const pyData = pythonResult.data && pythonResult.data.data;
-                    if (pyData && pyData.video_filename) {
-                        videoName = pyData.video_filename;
-                        console.log(`Extracted video filename from Python response: ${videoName}`);
-                    } else {
-                        // No video_filename found, treat as error
-                        console.error('No video_filename found in Python response. Aborting insert.');
-                        results.push({
-                            videoUrl,
-                            videoInsertError: 'No video_filename found in Python response',
-                            videoRecord: null,
-                            qudemoInsertError: 'No video_filename found in Python response',
-                            qudemoRecord: null,
-                            pythonResult
-                        });
-                        continue;
-                    }
-
-                    // Log before insert
-                    console.log('Inserting video with:', { companyId, userId, videoUrl, videoName });
-                    console.log('Data types:', { 
-                        companyId: typeof companyId, 
-                        userId: typeof userId,
-                        companyIdValue: companyId,
-                        userIdValue: userId
-                    });
-
-                    try {
-                        const insertData = {
-                            company_id: companyId,
-                            user_id: userId,
-                            video_url: videoUrl, // Always use the public URL
-                            video_name: videoName
-                        };
-                        console.log('Supabase insert data:', insertData);
-                        
-                        const { data: video, error: insertError } = await supabase
-                            .from('videos')
-                            .insert(insertData)
-                            .select()
-                            .single();
-                        videoRecord = video;
-                        videoInsertError = insertError;
-                        if (insertError) {
-                            console.error('Video insert error:', insertError);
-                            console.error('Insert error details:', {
-                                message: insertError.message,
-                                details: insertError.details,
-                                hint: insertError.hint,
-                                code: insertError.code
-                            });
-                        } else {
-                            console.log(`Successfully inserted video record with video_name: ${videoName}`);
-                            console.log('Inserted video record:', video);
-                        }
-                    } catch (err) {
-                        videoInsertError = err;
-                        console.error('Video insert exception:', err);
-                    }
-
-                    try {
-                        const { data: qudemo, error: insertQudemoError } = await supabase
-                            .from('qudemos')
-                            .insert({
-                                title: videoUrl,
-                                video_name: videoName,
-                                description: '',
-                                video_url: videoUrl, // Always use the public URL
-                                thumbnail_url: thumbnailUrl,
-                                company_id: companyId,
-                                created_by: userId,
-                                is_active: true,
-                                created_at: new Date().toISOString(),
-                                updated_at: new Date().toISOString()
-                            })
-                            .select()
-                            .single();
-                        qudemoRecord = qudemo;
-                        qudemoInsertError = insertQudemoError;
-                    } catch (err) {
-                        qudemoInsertError = err;
-                    }
-                }
-
-                results.push({
-                    videoUrl,
-                    videoInsertError,
-                    videoRecord,
-                    qudemoInsertError,
-                    qudemoRecord,
-                    pythonResult
+            });
+        } catch (error) {
+            console.error('❌ Video creation queue error:', error);
+            
+            // Handle duplicate video errors
+            if (error.message === 'Video is already being processed') {
+                return res.status(409).json({ 
+                    success: false, 
+                    error: 'This video is already being processed. Please wait for it to complete.',
+                    code: 'VIDEO_PROCESSING'
                 });
             }
             
-            res.json({ success: true, results });
-        } catch (error) {
-            console.error('Error in createVideos:', error);
-            res.status(500).json({ success: false, error: 'Internal server error' });
+            if (error.message === 'Video has already been processed') {
+                return res.status(409).json({ 
+                    success: false, 
+                    error: 'This video has already been processed. You can ask questions about it now.',
+                    code: 'VIDEO_PROCESSED'
+                });
+            }
+            
+            res.status(500).json({ 
+                success: false, 
+                error: 'Failed to queue video creation' 
+            });
         }
     },
 
@@ -701,10 +670,10 @@ const videoController = {
                 });
             }
         } catch (error) {
-            console.error('Rebuild index error:', error);
+            console.error('❌ Rebuild index error:', error);
             res.status(500).json({
                 success: false,
-                error: 'Internal server error'
+                error: 'Failed to rebuild FAISS index'
             });
         }
     },
@@ -714,24 +683,30 @@ const videoController = {
      */
     async askQuestion(req, res) {
         try {
-            const { question } = req.body;
-            const companyName = req.params.companyName || req.body.companyName;
+            const { question, companyName } = req.body;
 
-            if (!question || !companyName) {
+            if (!question) {
                 return res.status(400).json({
                     success: false,
-                    error: 'Question and company name are required'
+                    error: 'Question is required'
                 });
             }
 
-            console.log(`Asking question to company: ${companyName}`);
+            if (!companyName) {
+                return res.status(400).json({
+                    success: false,
+                    error: 'Company name is required'
+                });
+            }
+
+            console.log(`Asking question for company: ${companyName}`);
 
             const result = await videoService.askQuestion(question, companyName);
 
             if (result.success) {
                 res.json({
                     success: true,
-                    message: 'Question asked successfully',
+                    message: 'Question answered successfully',
                     data: result.data
                 });
             } else {
@@ -741,10 +716,10 @@ const videoController = {
                 });
             }
         } catch (error) {
-            console.error('Ask question error:', error);
+            console.error('❌ Ask question error:', error);
             res.status(500).json({
                 success: false,
-                error: 'Internal server error'
+                error: 'Failed to answer question'
             });
         }
     },
@@ -754,7 +729,7 @@ const videoController = {
      */
     async auditVideoMappings(req, res) {
         try {
-            const companyName = req.params.companyName || req.body.companyName;
+            const { companyName } = req.body;
 
             if (!companyName) {
                 return res.status(400).json({
@@ -770,7 +745,7 @@ const videoController = {
             if (result.success) {
                 res.json({
                     success: true,
-                    message: 'Video mappings audited successfully',
+                    message: 'Video mappings audit completed successfully',
                     data: result.data
                 });
             } else {
@@ -780,10 +755,10 @@ const videoController = {
                 });
             }
         } catch (error) {
-            console.error('Audit mappings error:', error);
+            console.error('❌ Audit mappings error:', error);
             res.status(500).json({
                 success: false,
-                error: 'Internal server error'
+                error: 'Failed to audit video mappings'
             });
         }
     },
@@ -792,43 +767,52 @@ const videoController = {
      * Upload a video file and return its URL
      */
     async uploadVideo(req, res) {
-      try {
-        if (!req.file) {
-          return res.status(400).json({ success: false, error: 'No file uploaded.' });
+        try {
+            if (!req.file) {
+                return res.status(400).json({
+                    success: false,
+                    error: 'No video file uploaded'
+                });
+            }
+
+            const videoUrl = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
+
+            res.json({
+                success: true,
+                message: 'Video uploaded successfully',
+                data: {
+                    filename: req.file.filename,
+                    originalName: req.file.originalname,
+                    url: videoUrl,
+                    size: req.file.size
+                }
+            });
+        } catch (error) {
+            console.error('❌ Upload video error:', error);
+            res.status(500).json({
+                success: false,
+                error: 'Failed to upload video'
+            });
         }
-        
-        // Debug: Log user information
-        console.log('Upload request user info:', req.user);
-        console.log('User ID from upload:', req.user?.userId || req.user?.id);
-        
-        // For now, return the local file path as the URL (in production, upload to cloud storage)
-        const videoUrl = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
-        const videoPath = path.resolve(__dirname, '../uploads', req.file.filename);
-        res.json({ success: true, videoUrl, videoPath });
-      } catch (error) {
-        console.error('Video upload error:', error);
-        res.status(500).json({ success: false, error: 'Internal server error' });
-      }
     },
 
     /**
-     * Test endpoint to verify authentication
+     * Test authentication endpoint
      */
     async testAuth(req, res) {
-      try {
-        console.log('Test auth - User object:', req.user);
-        console.log('Test auth - User ID:', req.user?.userId || req.user?.id);
-        
-        res.json({ 
-          success: true, 
-          user: req.user,
-          userId: req.user?.userId || req.user?.id,
-          message: 'Authentication test successful' 
-        });
-      } catch (error) {
-        console.error('Test auth error:', error);
-        res.status(500).json({ success: false, error: 'Internal server error' });
-      }
+        try {
+            res.json({
+                success: true,
+                message: 'Authentication successful',
+                user: req.user
+            });
+        } catch (error) {
+            console.error('❌ Test auth error:', error);
+            res.status(500).json({
+                success: false,
+                error: 'Authentication test failed'
+            });
+        }
     }
 };
 

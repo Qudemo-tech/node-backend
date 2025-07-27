@@ -1,279 +1,381 @@
-# QuDemo Node.js Backend
+# QuDemo Backend - Pure Node.js Async Processing
 
-A comprehensive Node.js/Express backend for the QuDemo application, designed to handle interactive demo management, buyer interactions, analytics, and user management.
+A high-performance Node.js backend for QuDemo with built-in asynchronous job processing, concurrency control, and memory management - **no external dependencies like Redis required**.
 
 ## 🚀 Features
 
-- **User Management**: Profile management, preferences, and settings
-- **Qudemo Management**: Create, update, delete, and search interactive demos
-- **Buyer Interactions**: Track and manage buyer engagement with demos
-- **Analytics**: Comprehensive analytics and insights
-- **Notifications**: User notification system
-- **Help & Support**: Support tickets and help articles
-- **Data Validation**: Joi schema validation
-- **Rate Limiting**: API rate limiting for security
-- **Supabase Integration**: PostgreSQL database with Supabase
+- **Pure Node.js Async Queue**: In-memory job queuing with priority handling
+- **Concurrency Control**: Intelligent throttling for video and Q&A requests
+- **Memory Management**: Real-time memory monitoring and automatic cleanup
+- **Request Prioritization**: Q&A requests get higher priority than video processing
+- **Automatic Retries**: Failed jobs are retried with exponential backoff
+- **Health Monitoring**: Comprehensive health checks and performance metrics
+- **Production Ready**: Optimized for 2GB RAM environments (Render, etc.)
 
-## 📁 Project Structure
+## 🏗️ Architecture
 
 ```
-node-backend/
-├── config/
-│   ├── database.js          # Supabase configuration
-│   └── env.example          # Environment variables template
-├── controllers/
-│   ├── userController.js    # User management logic
-│   ├── qudemoController.js  # Qudemo management logic
-│   ├── interactionController.js # Buyer interactions logic
-│   ├── analyticsController.js   # Analytics and insights logic
-│   ├── settingsController.js    # Application settings logic
-│   ├── notificationController.js # Notification management logic
-│   └── helpController.js    # Help and support logic
-├── middleware/
-│   └── validation.js        # Joi validation middleware
-├── routes/
-│   ├── userRoutes.js        # User endpoints
-│   ├── qudemoRoutes.js      # Qudemo endpoints
-│   ├── interactionRoutes.js # Interaction endpoints
-│   ├── analyticsRoutes.js   # Analytics endpoints
-│   ├── settingsRoutes.js    # Settings endpoints
-│   ├── notificationRoutes.js # Notification endpoints
-│   └── helpRoutes.js        # Help endpoints
-├── schemas/
-│   ├── userSchema.js        # User validation schemas
-│   ├── qudemoSchema.js      # Qudemo validation schemas
-│   ├── interactionSchema.js # Interaction validation schemas
-│   └── analyticsSchema.js   # Analytics validation schemas
-├── utils/                   # Utility functions
-├── server.js               # Main server file
-├── package.json            # Dependencies and scripts
-└── README.md              # This file
+┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
+│   Frontend      │    │   Node.js API    │    │   Python API    │
+│   (React)       │◄──►│   (Express)      │◄──►│   (FastAPI)     │
+└─────────────────┘    └──────────────────┘    └─────────────────┘
+                              │
+                              ▼
+                       ┌──────────────────┐
+                       │  Async Queue     │
+                       │  (In-Memory)     │
+                       │  • Video Jobs    │
+                       │  • QA Jobs       │
+                       │  • Priority      │
+                       │  • Retries       │
+                       └──────────────────┘
 ```
 
-## 🛠️ Installation
+## 📦 Installation
 
-1. **Clone the repository**
-   ```bash
-   cd backend/node-backend
-   ```
+### Prerequisites
+- Node.js 18+ 
+- Python 3.8+ (for video processing)
+- Supabase account
 
-2. **Install dependencies**
-   ```bash
-   npm install
-   ```
+### Quick Start
 
-3. **Set up environment variables**
-   ```bash
-   cp config/env.example .env
-   ```
-   Edit `.env` with your configuration:
-   ```env
-   PORT=5000
-   NODE_ENV=development
-   SUPABASE_URL=your_supabase_url
-   SUPABASE_ANON_KEY=your_supabase_anon_key
-   SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
-   ```
+1. **Clone and install dependencies:**
+```bash
+cd backend/node-backend
+npm install
+```
 
-4. **Start the server**
-   ```bash
-   # Development
-   npm run dev
-   
-   # Production
-   npm start
-   ```
+2. **Set up environment variables:**
+```bash
+cp config/env.example .env
+# Edit .env with your configuration
+```
 
-## 📊 Database Schema
+3. **Start the server:**
+```bash
+# Development mode (server + queue processing)
+npm run dev:all
 
-### Users Table
-- `id` (UUID, Primary Key)
-- `first_name` (String)
-- `last_name` (String)
-- `email` (String, Unique)
-- `phone` (String)
-- `company` (String)
-- `job_title` (String)
-- `timezone` (String)
-- `language` (String)
-- `profile_picture` (String)
-- `notifications` (JSON)
-- `privacy` (JSON)
-- `settings` (JSON)
-- `created_at` (Timestamp)
-- `updated_at` (Timestamp)
+# Production mode
+npm run start:all
+```
 
-### Qudemos Table
-- `id` (UUID, Primary Key)
-- `title` (String)
-- `description` (Text)
-- `video_url` (String)
-- `thumbnail_url` (String)
-- `duration` (String)
-- `knowledge_sources` (JSON)
-- `meeting_link` (String)
-- `is_active` (Boolean)
-- `tags` (JSON)
-- `category` (String)
-- `created_at` (Timestamp)
-- `updated_at` (Timestamp)
+## ⚙️ Configuration
 
-### Interactions Table
-- `id` (UUID, Primary Key)
-- `buyer_name` (String)
-- `buyer_email` (String)
-- `buyer_company` (String)
-- `qudemo_id` (UUID, Foreign Key)
-- `action` (String)
-- `engagement_score` (Integer)
-- `time_spent` (String)
-- `questions_asked` (Integer)
-- `status` (String)
-- `created_at` (Timestamp)
-- `updated_at` (Timestamp)
+### Environment Variables
 
-### Questions Table
-- `id` (UUID, Primary Key)
-- `interaction_id` (UUID, Foreign Key)
-- `question` (Text)
-- `answer` (Text)
-- `created_at` (Timestamp)
+```env
+# Database Configuration
+SUPABASE_URL=your_supabase_url_here
+SUPABASE_ANON_KEY=your_supabase_anon_key_here
+SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key_here
 
-### Notifications Table
-- `id` (UUID, Primary Key)
-- `user_id` (UUID, Foreign Key)
-- `title` (String)
-- `message` (Text)
-- `type` (String)
-- `read` (Boolean)
-- `read_at` (Timestamp)
-- `created_at` (Timestamp)
+# Job Queue Configuration (Pure Node.js)
+QUEUE_MAX_CONCURRENT_VIDEOS=2
+QUEUE_MAX_CONCURRENT_QA=10
+QUEUE_VIDEO_PRIORITY=2
+QUEUE_QA_PRIORITY=1
+QUEUE_RETRY_ATTEMPTS=3
+QUEUE_BACKOFF_DELAY=5000
+QUEUE_MAX_MEMORY_MB=1600
+QUEUE_JOB_TIMEOUT_MS=300000
 
-### Settings Table
-- `id` (UUID, Primary Key)
-- `ai_assistant` (JSON)
-- `cta_buttons` (JSON)
-- `notifications` (JSON)
-- `created_at` (Timestamp)
-- `updated_at` (Timestamp)
+# Concurrency Settings
+MAX_CONCURRENT_VIDEO_PROCESSING=2
+MAX_CONCURRENT_QA_REQUESTS=20
+MEMORY_THRESHOLD_MB=1600
+REQUEST_TIMEOUT_MS=300000
 
-## 🔌 API Endpoints
+# Python API Configuration
+PYTHON_API_BASE_URL=http://localhost:5001
+```
 
-### Users
-- `GET /api/users/:userId/profile` - Get user profile
-- `PUT /api/users/:userId/profile` - Update user profile
-- `PUT /api/users/:userId/preferences` - Update user preferences
-- `PUT /api/users/:userId/password` - Change password
-- `PUT /api/users/:userId/profile-picture` - Upload profile picture
-- `GET /api/users/:userId/settings` - Get user settings
-- `PUT /api/users/:userId/settings` - Update user settings
+## 🔄 Async Job Processing
 
-### Qudemos
-- `POST /api/qudemos` - Create new qudemo
-- `GET /api/qudemos` - Get all qudemos with search and pagination
-- `GET /api/qudemos/:qudemoId` - Get single qudemo
-- `PUT /api/qudemos/:qudemoId` - Update qudemo
-- `DELETE /api/qudemos/:qudemoId` - Delete qudemo
-- `GET /api/qudemos/:qudemoId/stats` - Get qudemo statistics
-- `GET /api/qudemos/categories/list` - Get qudemo categories
+### How It Works
 
-### Interactions
-- `POST /api/interactions` - Create new interaction
-- `GET /api/interactions` - Get all interactions with filters
-- `GET /api/interactions/:interactionId` - Get interaction by ID
-- `PUT /api/interactions/:interactionId` - Update interaction
-- `POST /api/interactions/:interactionId/questions` - Add question
-- `GET /api/interactions/:interactionId/questions` - Get questions
-- `GET /api/interactions/pending/follow-ups` - Get pending follow-ups
-- `GET /api/interactions/high-engagement` - Get high engagement interactions
-- `GET /api/interactions/summary/:qudemoId` - Get interaction summary
+1. **Job Submission**: API endpoints queue jobs instead of processing immediately
+2. **Priority Handling**: Q&A jobs (priority 1) are processed before video jobs (priority 2)
+3. **Concurrency Control**: Limits active jobs based on system capacity
+4. **Background Processing**: Jobs run in the background without blocking the API
+5. **Automatic Cleanup**: Completed jobs are removed from memory
 
-### Analytics
-- `GET /api/analytics/overview` - Get overview analytics
-- `GET /api/analytics/conversion-funnel` - Get conversion funnel
-- `GET /api/analytics/recent-activity` - Get recent activity
-- `GET /api/analytics/weekly-activity` - Get weekly activity chart
-- `GET /api/analytics/demo-performance` - Get demo performance metrics
-- `GET /api/analytics/engagement` - Get engagement analytics
+### Job Types
 
-### Settings
-- `GET /api/settings` - Get application settings
-- `PUT /api/settings` - Update application settings
+#### Video Processing Jobs
+```javascript
+// Queue a video for processing
+const jobId = await asyncQueue.addVideoJob({
+    videoUrl: 'https://youtube.com/watch?v=...',
+    companyName: 'acme-corp',
+    bucketName: 'acme-videos',
+    isYouTube: true,
+    userId: 'user-123'
+}, 2); // Priority 2 (medium)
+```
 
-### Notifications
-- `GET /api/notifications/:userId` - Get user notifications
-- `PUT /api/notifications/:notificationId/read` - Mark as read
-- `PUT /api/notifications/:userId/read-all` - Mark all as read
-- `GET /api/notifications/:userId/unread-count` - Get unread count
-- `DELETE /api/notifications/:notificationId` - Delete notification
+#### Q&A Processing Jobs
+```javascript
+// Queue a question for AI processing
+const jobId = await asyncQueue.addQAJob({
+    interactionId: 'interaction-123',
+    question: 'What are the main features?',
+    companyName: 'acme-corp',
+    userId: 'user-123'
+}, 1); // Priority 1 (high)
+```
 
-### Help & Support
-- `GET /api/help/articles` - Get help articles
-- `GET /api/help/articles/:articleId` - Get help article by ID
-- `GET /api/help/categories` - Get help categories
-- `POST /api/help/tickets` - Submit support ticket
-- `GET /api/help/tickets/:userId` - Get user support tickets
-- `GET /api/help/faq` - Get FAQ
+### Job Status Tracking
 
-## 🔒 Security Features
+```javascript
+// Get job details
+const job = asyncQueue.getJobDetails(jobId, 'video');
 
-- **Rate Limiting**: 100 requests per 15 minutes per IP
-- **Input Validation**: Joi schema validation for all inputs
-- **CORS**: Configured for frontend integration
-- **Helmet**: Security headers
-- **Morgan**: Request logging
+// Job states: 'queued' → 'processing' → 'completed'/'failed'
+console.log(job.status); // 'queued', 'processing', 'completed', 'failed'
+```
+
+## 🎯 Concurrency Control
+
+### Request Throttling
+
+- **Video Processing**: Max 2 concurrent requests
+- **Q&A Requests**: Max 20 concurrent requests
+- **Memory-Based Rejection**: Requests rejected if memory usage > 1600MB
+
+### Priority System
+
+1. **High Priority (1)**: Q&A requests - processed first
+2. **Medium Priority (2)**: Video processing - processed second
+3. **Low Priority (3)**: Other requests - processed last
+
+### Memory Management
+
+```javascript
+// Real-time memory monitoring
+const memory = asyncQueue.getMemoryUsage();
+console.log(`RSS: ${memory.rss}MB`);
+console.log(`Heap Used: ${memory.heapUsed}MB`);
+```
+
+## 📊 Health & Monitoring
+
+### Health Check Endpoint
+
+```bash
+GET /health
+```
+
+Response:
+```json
+{
+  "status": "healthy",
+  "timestamp": "2024-01-01T00:00:00.000Z",
+  "health": {
+    "memory": {
+      "node": { "rss": 150, "heapUsed": 80 },
+      "python": { "memory_mb": 1200, "status": "ok" }
+    },
+    "queues": {
+      "video": { "waiting": 2, "activeJobs": 1 },
+      "qa": { "waiting": 5, "activeJobs": 3 }
+    }
+  }
+}
+```
+
+### Queue Management
+
+```bash
+# Get queue status
+GET /api/queue/status
+
+# Get job details
+GET /api/queue/jobs/video/123
+
+# Monitor queues (console output)
+GET /api/queue/monitor
+```
 
 ## 🧪 Testing
 
-```bash
-# Run tests
-npm test
+### Test the Async Queue
 
-# Run tests in watch mode
-npm run test:watch
+```bash
+# Test the queue system
+node test_async_queue.js
 ```
 
-## 📝 Environment Variables
+### Test Concurrency
 
-| Variable | Description | Required |
-|----------|-------------|----------|
-| `PORT` | Server port | No (default: 5000) |
-| `NODE_ENV` | Environment | No (default: development) |
-| `SUPABASE_URL` | Supabase project URL | Yes |
-| `SUPABASE_ANON_KEY` | Supabase anonymous key | Yes |
-| `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key | Yes |
-| `JWT_SECRET` | JWT secret for authentication | No |
-| `JWT_EXPIRES_IN` | JWT expiration time | No |
-| `MAX_FILE_SIZE` | Maximum file upload size | No |
-| `UPLOAD_PATH` | File upload directory | No |
-| `RATE_LIMIT_WINDOW_MS` | Rate limit window | No |
-| `RATE_LIMIT_MAX_REQUESTS` | Rate limit max requests | No |
-| `CORS_ORIGIN` | CORS origin | No |
+```bash
+# Run concurrency tests
+npm run test:concurrency
+```
+
+### Manual Testing
+
+```bash
+# Start the server
+npm run dev:all
+
+# In another terminal, test endpoints
+curl http://localhost:5000/health
+curl http://localhost:5000/api/queue/status
+```
 
 ## 🚀 Deployment
 
-1. **Set environment variables**
-2. **Install dependencies**: `npm install --production`
-3. **Start the server**: `npm start`
+### Render Deployment
 
-## 📚 Dependencies
+1. **Set environment variables** in Render dashboard
+2. **Build command**: `npm install`
+3. **Start command**: `npm run start:all`
+4. **Health check path**: `/health`
 
-### Production
-- `express` - Web framework
-- `@supabase/supabase-js` - Supabase client
-- `joi` - Data validation
-- `helmet` - Security headers
-- `cors` - CORS middleware
-- `morgan` - HTTP request logger
-- `express-rate-limit` - Rate limiting
-- `uuid` - UUID generation
-- `bcryptjs` - Password hashing
-- `jsonwebtoken` - JWT authentication
+### Docker Deployment
 
-### Development
-- `nodemon` - Development server
-- `jest` - Testing framework
-- `supertest` - HTTP testing
+```dockerfile
+FROM node:18-alpine
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci --only=production
+COPY . .
+EXPOSE 5000
+CMD ["npm", "run", "start:all"]
+```
+
+### Environment-Specific Settings
+
+#### Development
+```env
+NODE_ENV=development
+ENABLE_DEBUG_LOGS=true
+QUEUE_MAX_CONCURRENT_VIDEOS=1
+QUEUE_MAX_CONCURRENT_QA=5
+```
+
+#### Production
+```env
+NODE_ENV=production
+ENABLE_DEBUG_LOGS=false
+QUEUE_MAX_CONCURRENT_VIDEOS=2
+QUEUE_MAX_CONCURRENT_QA=10
+MEMORY_THRESHOLD_MB=1600
+```
+
+## 🔧 Troubleshooting
+
+### Common Issues
+
+#### High Memory Usage
+```bash
+# Check memory usage
+curl http://localhost:5000/health
+
+# Reduce concurrency
+export QUEUE_MAX_CONCURRENT_VIDEOS=1
+export QUEUE_MAX_CONCURRENT_QA=5
+```
+
+#### Jobs Not Processing
+```bash
+# Check queue status
+curl http://localhost:5000/api/queue/status
+
+# Monitor queues
+curl http://localhost:5000/api/queue/monitor
+```
+
+#### Python API Connection Issues
+```bash
+# Check Python API health
+curl http://localhost:5001/health
+
+# Verify PYTHON_API_BASE_URL in .env
+```
+
+### Performance Optimization
+
+1. **Adjust concurrency limits** based on your server capacity
+2. **Monitor memory usage** and adjust thresholds
+3. **Use appropriate job timeouts** for your use case
+4. **Enable debug logs** in development for troubleshooting
+
+## 📈 Performance Metrics
+
+### Expected Performance (2GB RAM)
+
+- **Concurrent Users**: 5-10 users
+- **Video Processing**: 2 concurrent videos
+- **Q&A Requests**: 20 concurrent requests
+- **Response Time**: < 1 second for job queuing
+- **Memory Usage**: < 1600MB under normal load
+
+### Scaling Considerations
+
+- **Horizontal Scaling**: Run multiple instances behind a load balancer
+- **Vertical Scaling**: Increase memory and adjust concurrency limits
+- **Database Scaling**: Use Supabase's scaling features
+- **Python API Scaling**: Deploy multiple Python instances
+
+## 🔒 Security
+
+- **Rate Limiting**: 200 requests per 15 minutes per IP
+- **Input Validation**: All inputs validated with Joi
+- **CORS Protection**: Configured for specific origins
+- **Helmet Security**: Security headers enabled
+- **Environment Variables**: Sensitive data in environment variables
+
+## 📝 API Documentation
+
+### Video Processing
+
+```bash
+# Queue video for processing
+POST /api/video/process
+{
+  "video_url": "https://youtube.com/watch?v=...",
+  "company_name": "acme-corp",
+  "source": "youtube"
+}
+
+# Response
+{
+  "success": true,
+  "message": "Video processing queued successfully",
+  "data": {
+    "jobId": 123,
+    "queuePosition": 2,
+    "estimatedWaitTime": "4-10 minutes",
+    "status": "queued"
+  }
+}
+```
+
+### Q&A Processing
+
+```bash
+# Queue question for AI processing
+POST /api/interactions/{interactionId}/questions
+{
+  "question": "What are the main features?",
+  "companyName": "acme-corp"
+}
+
+# Response
+{
+  "success": true,
+  "message": "Question queued for AI processing",
+  "data": {
+    "jobId": 456,
+    "queuePosition": 1,
+    "estimatedWaitTime": "10-30 seconds",
+    "status": "queued"
+  }
+}
+```
 
 ## 🤝 Contributing
 
@@ -285,4 +387,15 @@ npm run test:watch
 
 ## 📄 License
 
-MIT License - see LICENSE file for details 
+MIT License - see LICENSE file for details
+
+## 🆘 Support
+
+For support and questions:
+- Create an issue in the repository
+- Check the troubleshooting section
+- Review the API documentation
+
+---
+
+**Built with ❤️ for high-performance async processing without external dependencies** 
