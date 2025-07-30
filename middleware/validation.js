@@ -1,6 +1,6 @@
 const validate = (schema) => {
   return (req, res, next) => {
-    console.log('🔍 Validation: Checking request body:', req.body);
+    
     const { error } = schema.validate(req.body);
     if (error) {
       console.log('❌ Validation failed:', error.details);
@@ -16,7 +16,7 @@ const validate = (schema) => {
 
 const validateQuery = (schema) => {
   return (req, res, next) => {
-    console.log('🔍 Validation: Checking request query:', req.query);
+    
     const { error } = schema.validate(req.query);
     if (error) {
       console.log('❌ Query validation failed:', error.details);
@@ -32,7 +32,7 @@ const validateQuery = (schema) => {
 
 const validateParams = (schema) => {
   return (req, res, next) => {
-    console.log('🔍 Validation: Checking request params:', req.params);
+    
     const { error } = schema.validate(req.params);
     if (error) {
       console.log('❌ Parameter validation failed:', error.details);
@@ -48,7 +48,7 @@ const validateParams = (schema) => {
 
 const validateRequest = (schema, property = 'body') => {
   return (req, res, next) => {
-    console.log(`🔍 Validation: Checking request ${property}:`, req[property]);
+    
     const { error } = schema.validate(req[property]);
     if (error) {
       console.log('❌ Request validation failed:', error.details);

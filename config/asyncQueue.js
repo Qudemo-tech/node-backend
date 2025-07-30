@@ -85,22 +85,44 @@ class AsyncJobQueue extends EventEmitter {
         this.processedVideos = new Set();
         this.processingVideos = new Set();
         
-        console.log(`🎬 AsyncJobQueue initialized with:`);
-        console.log(`   Max concurrent videos: ${this.maxConcurrentVideos}`);
-        console.log(`   Max concurrent QA: ${this.maxConcurrentQA}`);
-        console.log(`   Job timeout: ${this.jobTimeout}ms`);
-        console.log(`   Retry attempts: ${this.retryAttempts}`);
+        console.log(`🎬 AsyncJobQueue initialized - Videos: ${this.maxConcurrentVideos}, QA: ${this.maxConcurrentQA}`);
         
         this.startProcessing();
+    }
+
+    // Helper function to generate thumbnail URLs for different video platforms
+    generateThumbnailUrl(videoUrl) {
+        if (!videoUrl) return null;
+        
+        // Loom video thumbnail
+        if (videoUrl.includes('loom.com')) {
+            const loomMatch = videoUrl.match(/loom\.com\/(?:share|embed|recordings)\/([a-zA-Z0-9-]+)/);
+            if (loomMatch && loomMatch[1]) {
+                return `https://cdn.loom.com/sessions/thumbnails/${loomMatch[1]}-with-play.gif`;
+            }
+        }
+        
+        // YouTube video thumbnail
+        const ytMatch = videoUrl.match(/(?:youtube\.com\/(?:[^\/\n\s]+\/\S+\/|(?:v|e(?:mbed)?|shorts)\/|.*[?&]v=)|youtu\.be\/)([\w-]{11})/);
+        if (ytMatch && ytMatch[1]) {
+            return `https://img.youtube.com/vi/${ytMatch[1]}/hqdefault.jpg`;
+        }
+        
+        // Vimeo video thumbnail
+        if (videoUrl.includes('vimeo.com/')) {
+            const videoId = videoUrl.split('vimeo.com/')[1].split('?')[0].split('/')[0];
+            if (videoId) {
+                return `https://vumbnail.com/${videoId}.jpg`;
+            }
+        }
+        
+        // Default placeholder
+        return "https://via.placeholder.com/400x200?text=No+Thumbnail";
     }
 
     async addVideoJob(jobData, priority = 2) {
         // Create a unique identifier for this video
         const videoKey = `${jobData.videoUrl}_${jobData.companyId || jobData.companyName}`;
-        
-        console.log(`🔍 Checking video: ${videoKey}`);
-        console.log(`   Processing videos: ${Array.from(this.processingVideos)}`);
-        console.log(`   Processed videos: ${Array.from(this.processedVideos)}`);
         
         // Check if this video is already being processed
         if (this.processingVideos.has(videoKey)) {
@@ -116,7 +138,6 @@ class AsyncJobQueue extends EventEmitter {
         
         // Mark as processing
         this.processingVideos.add(videoKey);
-        console.log(`✅ Added to processing: ${videoKey}`);
         
         const jobId = this.videoQueue.add({
             type: 'video',
@@ -126,7 +147,7 @@ class AsyncJobQueue extends EventEmitter {
         }, priority);
 
         this.emit('jobAdded', { queue: 'video', jobId, priority });
-        console.log(`🎥 Video job ${jobId} added to queue (priority: ${priority})`);
+        console.log(`🎥 Video job ${jobId} queued`);
         
         return jobId;
     }
@@ -139,7 +160,7 @@ class AsyncJobQueue extends EventEmitter {
         }, priority);
 
         this.emit('jobAdded', { queue: 'qa', jobId, priority });
-        console.log(`❓ QA job ${jobId} added to queue (priority: ${priority})`);
+        console.log(`❓ QA job ${jobId} queued`);
         
         return jobId;
     }
@@ -148,7 +169,7 @@ class AsyncJobQueue extends EventEmitter {
         if (this.isProcessing) return;
         this.isProcessing = true;
         
-        console.log('🚀 Starting async job processing...');
+
         
         while (this.isProcessing) {
             await this.processNextJobs();
@@ -207,7 +228,7 @@ class AsyncJobQueue extends EventEmitter {
                 this.activeVideoJobs === 0 && this.activeQAJobs === 0) {
                 console.log('💤 Queue is idle - waiting for new jobs...');
             } else {
-                console.log(`📊 Queue status - Video: ${videoCounts.queued} queued, ${this.activeVideoJobs} active | QA: ${qaCounts.queued} queued, ${this.activeQAJobs} active`);
+    
             }
             this.lastStatusLog = now;
         }
@@ -215,9 +236,7 @@ class AsyncJobQueue extends EventEmitter {
 
     async processVideoJob(job) {
         try {
-            console.log(`🎬 Processing video job ${job.id} with videoKey: ${job.videoKey}...`);
-            console.log(`   Video URL: ${job.data.videoUrl}`);
-            console.log(`   Company: ${job.data.companyName}`);
+            console.log(`🎬 Processing video job ${job.id}`);
             job.status = 'processing';
             job.startedAt = Date.now();
             
@@ -243,12 +262,10 @@ class AsyncJobQueue extends EventEmitter {
                 // Mark video as processed only if execution was successful
                 if (job.videoKey) {
                     this.processedVideos.add(job.videoKey);
-                    console.log(`✅ Video marked as processed: ${job.videoKey}`);
-                    console.log(`   Total processed videos: ${this.processedVideos.size}`);
                 }
                 
                 this.emit('jobCompleted', { queue: 'video', jobId: job.id, result });
-                console.log(`✅ Video job ${job.id} completed successfully`);
+                console.log(`✅ Video job ${job.id} completed`);
             } else {
                 throw new Error('Video processing did not return valid result');
             }
@@ -258,7 +275,6 @@ class AsyncJobQueue extends EventEmitter {
             // If job failed, remove from processing videos so it can be retried
             if (job.videoKey) {
                 this.processingVideos.delete(job.videoKey);
-                console.log(`❌ Video removed from processing (failed): ${job.videoKey}`);
             }
             throw error;
         } finally {
@@ -267,14 +283,12 @@ class AsyncJobQueue extends EventEmitter {
             // Clean up the video key from processingVideos if the job completed
             if (job.videoKey) {
                 this.processingVideos.delete(job.videoKey);
-                console.log(`🧹 Cleaned up processing for: ${job.videoKey}`);
             }
         }
     }
 
     async processQAJob(job) {
         try {
-            console.log(`💬 Processing QA job ${job.id}...`);
             job.status = 'processing';
             job.startedAt = Date.now();
             
@@ -296,7 +310,7 @@ class AsyncJobQueue extends EventEmitter {
             job.result = result;
             
             this.emit('jobCompleted', { queue: 'qa', jobId: job.id, result });
-            console.log(`✅ QA job ${job.id} completed successfully`);
+            console.log(`✅ QA job ${job.id} completed`);
             
         } catch (error) {
             throw error;
@@ -325,14 +339,12 @@ class AsyncJobQueue extends EventEmitter {
                     const healthResponse = await axios.get(`${PYTHON_API_BASE_URL}/health`, {
                         timeout: 15000 // 15 seconds (increased from 5)
                     });
-                    console.log(`✅ Python API health check passed (attempt ${attempt}): ${healthResponse.data.status}`);
+
                     healthCheckPassed = true;
                     break;
                 } catch (error) {
                     healthError = error;
-                    console.warn(`⚠️ Python API health check attempt ${attempt} failed: ${error.message}`);
                     if (attempt < 3) {
-                        console.log(`🔄 Retrying health check in 2 seconds...`);
                         await this.sleep(2000);
                     }
                 }
@@ -344,7 +356,7 @@ class AsyncJobQueue extends EventEmitter {
             }
 
             // Call Python API for video processing
-            console.log(`🎥 Processing Loom video: ${videoUrl}`);
+            console.log(`🎥 Processing video: ${videoUrl}`);
             
             const payload = {
                 video_url: videoUrl,
@@ -374,7 +386,7 @@ class AsyncJobQueue extends EventEmitter {
                 throw new Error('No video_id returned from Python API');
             }
 
-            console.log(`✅ Python API returned video_id: ${video_id}`);
+
             
             // Update progress
             this.emit('jobProgress', { 
@@ -416,7 +428,7 @@ class AsyncJobQueue extends EventEmitter {
                 throw new Error(`Database error: ${videoError.message}`);
             }
 
-            console.log(`✅ Video inserted successfully: ${video_id}`);
+
 
             // Insert into qudemos table if this is a QuDemo creation
             if (createQuDemo) {
@@ -425,7 +437,7 @@ class AsyncJobQueue extends EventEmitter {
                     title: `Loom Video Demo - ${companyName}`,
                     description: `AI-powered Loom video demo for ${companyName}`,
                     video_url: videoUrl,
-                    thumbnail_url: null,
+                    thumbnail_url: this.generateThumbnailUrl(videoUrl), // Use the new helper
                     company_id: company.id,
                     created_by: userId,
                     is_active: true,
@@ -457,7 +469,36 @@ class AsyncJobQueue extends EventEmitter {
             return { video_id, status: 'completed' };
             
         } catch (error) {
-            console.error(`❌ Loom video processing failed for job ${job.id}:`, error.message);
+            // Check if this is a Vimeo restriction error from the Python API response
+            let errorMessage = error.message;
+            
+            // If it's an axios error with response data, check the detail field
+            if (error.response && error.response.data && error.response.data.detail) {
+                errorMessage = error.response.data.detail;
+            }
+            
+            // Check if this is a Vimeo restriction error that should not be retried
+            const nonRetryableVimeoErrors = [
+                'This Vimeo video has download restrictions',
+                'Vimeo video has download restrictions',
+                'download restrictions',
+                'private, password-protected',
+                'special access requirements'
+            ];
+            
+            const isVimeoRestrictionError = nonRetryableVimeoErrors.some(errType => 
+                errorMessage.includes(errType)
+            );
+            
+            if (isVimeoRestrictionError) {
+                // Create a special error that will be recognized as non-retryable
+                const restrictionError = new Error(`Vimeo restriction error: ${errorMessage}`);
+                restrictionError.isVimeoRestriction = true;
+                console.error(`❌ Vimeo video has download restrictions (non-retryable): ${errorMessage}`);
+                throw restrictionError;
+            }
+            
+            console.error(`❌ Loom video processing failed for job ${job.id}:`, errorMessage);
             throw error;
         }
     }
@@ -534,12 +575,18 @@ class AsyncJobQueue extends EventEmitter {
             'Database error:',
             'Python API is not available:',
             'No response data from Python API',
-            'No video_id returned from Python API'
+            'No video_id returned from Python API',
+            'This Vimeo video has download restrictions',
+            'Vimeo video has download restrictions',
+            'download restrictions',
+            'private, password-protected',
+            'special access requirements',
+            'Vimeo restriction error:'
         ];
         
         const isNonRetryable = nonRetryableErrors.some(errType => 
             error.message.includes(errType)
-        );
+        ) || error.isVimeoRestriction === true;
         
         if (isNonRetryable) {
             job.status = 'failed';

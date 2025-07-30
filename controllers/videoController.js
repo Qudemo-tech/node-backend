@@ -287,11 +287,22 @@ const videoController = {
                 });
             }
 
-            // Validate Loom video URL
-            if (!videoUrl.includes('loom.com') || !videoUrl.startsWith('http')) {
+            // Validate video URL (Loom or Vimeo)
+            if (!videoUrl.startsWith('http')) {
                 return res.status(400).json({
                     success: false,
-                    error: 'Invalid Loom video URL. Only Loom videos are supported.'
+                    error: 'Invalid video URL. URL must start with http.'
+                });
+            }
+            
+            // Check if it's a supported video platform
+            const isLoomVideo = videoUrl.includes('loom.com');
+            const isVimeoVideo = videoUrl.includes('vimeo.com');
+            
+            if (!isLoomVideo && !isVimeoVideo) {
+                return res.status(400).json({
+                    success: false,
+                    error: 'Invalid video URL. Only Loom and Vimeo videos are supported.'
                 });
             }
 
@@ -310,10 +321,13 @@ const videoController = {
                 });
             }
 
-            console.log(`🎥 Queueing Loom video processing for company: ${companyName}`);
+            const videoType = isLoomVideo ? 'Loom' : 'Vimeo';
+
 
             const jobData = {
-                videoUrl, companyName, isLoom: true,
+                videoUrl, companyName, 
+                isLoom: isLoomVideo,
+                isVimeo: isVimeoVideo,
                 source: source || null, meetingLink: meeting_link || null,
                 userId: req.user?.userId || req.user?.id, timestamp: new Date().toISOString()
             };
@@ -356,11 +370,22 @@ const videoController = {
                 });
             }
 
-            // Validate Loom video URL
-            if (!videoUrl.includes('loom.com') || !videoUrl.startsWith('http')) {
+            // Validate video URL (Loom or Vimeo)
+            if (!videoUrl.startsWith('http')) {
                 return res.status(400).json({
                     success: false,
-                    error: 'Invalid Loom video URL. Only Loom videos are supported.'
+                    error: 'Invalid video URL. URL must start with http.'
+                });
+            }
+            
+            // Check if it's a supported video platform
+            const isLoomVideo = videoUrl.includes('loom.com');
+            const isVimeoVideo = videoUrl.includes('vimeo.com');
+            
+            if (!isLoomVideo && !isVimeoVideo) {
+                return res.status(400).json({
+                    success: false,
+                    error: 'Invalid video URL. Only Loom and Vimeo videos are supported.'
                 });
             }
 
@@ -379,10 +404,14 @@ const videoController = {
                 });
             }
 
-            console.log(`🎥 Queueing Loom video processing and indexing for company: ${companyName}`);
+            const videoType = isLoomVideo ? 'Loom' : 'Vimeo';
+            
+
 
             const jobData = {
-                videoUrl, companyName, isLoom: true,
+                videoUrl, companyName, 
+                isLoom: isLoomVideo,
+                isVimeo: isVimeoVideo,
                 source: source || null, meetingLink: meeting_link || null,
                 userId: req.user?.userId || req.user?.id, timestamp: new Date().toISOString(),
                 buildIndex: true
@@ -395,7 +424,7 @@ const videoController = {
 
             res.json({
                 success: true,
-                message: 'Loom video processing and indexing queued successfully',
+                message: `${videoType} video processing and indexing queued successfully`,
                 data: {
                     jobId: jobId,
                     queuePosition: waitingJobs,
@@ -426,7 +455,7 @@ const videoController = {
                 });
             }
 
-            console.log(`Building FAISS index for company: ${companyName}`);
+
 
             const result = await videoService.buildFaissIndex(newChunks, companyName);
 
@@ -480,7 +509,7 @@ const videoController = {
     },
 
     /**
-     * Create videos (QuDemo creation) - Loom videos only
+     * Create videos (QuDemo creation) - Loom and Vimeo videos
      */
     async createVideos(req, res) {
         try {
@@ -491,14 +520,7 @@ const videoController = {
             const source = req.body.source || req.body.meetingLink || req.body.meeting_link;
             const meetingLink = req.body.meetingLink || req.body.meeting_link;
             
-            console.log('📝 Received Loom video creation request:', {
-                videoUrl,
-                companyId,
-                companyName,
-                source,
-                meetingLink,
-                body: req.body
-            });
+            console.log(`📝 Video creation request: ${videoUrl} for company: ${companyName || companyId}`);
 
             // If we have companyId but not companyName, fetch company name from database
             let finalCompanyName = companyName;
@@ -531,11 +553,22 @@ const videoController = {
                 });
             }
 
-            // Validate Loom video URL
-            if (!videoUrl.includes('loom.com') || !videoUrl.startsWith('http')) {
+            // Validate video URL (Loom or Vimeo)
+            if (!videoUrl.startsWith('http')) {
                 return res.status(400).json({
                     success: false,
-                    error: 'Invalid Loom video URL. Only Loom videos are supported.'
+                    error: 'Invalid video URL. URL must start with http.'
+                });
+            }
+            
+            // Check if it's a supported video platform
+            const isLoomVideo = videoUrl.includes('loom.com');
+            const isVimeoVideo = videoUrl.includes('vimeo.com');
+            
+            if (!isLoomVideo && !isVimeoVideo) {
+                return res.status(400).json({
+                    success: false,
+                    error: 'Invalid video URL. Only Loom and Vimeo videos are supported.'
                 });
             }
 
@@ -554,12 +587,14 @@ const videoController = {
                 });
             }
 
-            console.log(`🎥 Queueing Loom video creation for company: ${finalCompanyName}`);
+            const videoType = isLoomVideo ? 'Loom' : 'Vimeo';
+            console.log(`🎥 Queueing ${videoType} video for: ${finalCompanyName}`);
 
             const jobData = {
                 videoUrl, 
                 companyName: finalCompanyName, 
-                isLoom: true,
+                isLoom: isLoomVideo,
+                isVimeo: isVimeoVideo,
                 source: source || null, 
                 meetingLink: meetingLink || null,
                 userId: req.user?.userId || req.user?.id, 
@@ -574,7 +609,7 @@ const videoController = {
 
             res.json({
                 success: true,
-                message: 'Loom video creation queued successfully',
+                message: `${videoType} video creation queued successfully`,
                 data: {
                     jobId: jobId,
                     queuePosition: waitingJobs,
@@ -623,7 +658,7 @@ const videoController = {
                 });
             }
 
-            console.log(`Rebuilding FAISS index for company: ${companyName}`);
+
 
             const result = await videoService.rebuildFaissIndex(companyName);
 
@@ -669,7 +704,7 @@ const videoController = {
                 });
             }
 
-            console.log(`Asking question for company: ${companyName}`);
+
 
             const result = await videoService.askQuestion(question, companyName);
 
@@ -708,7 +743,7 @@ const videoController = {
                 });
             }
 
-            console.log(`Auditing video mappings for company: ${companyName}`);
+
 
             const result = await videoService.auditVideoMappings(companyName);
 

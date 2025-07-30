@@ -1,5 +1,4 @@
 const supabase = require('../config/database');
-console.log('leadController loaded, supabase:', supabase);
 
 // Add a new lead
 exports.addLead = async (req, res) => {
@@ -35,10 +34,8 @@ exports.addUserInteraction = async (req, res) => {
 
 // Get all leads
 exports.getLeads = async (req, res) => {
-  console.log('getLeads function entered');
   try {
     const userId = req.user.userId;
-    console.log('Fetching company for userId:', userId);
     // Find the company for the current user
     const { data: company, error: companyError } = await supabase
       .from('companies')
@@ -46,11 +43,10 @@ exports.getLeads = async (req, res) => {
       .eq('user_id', userId)
       .single();
     if (companyError || !company) {
-      console.error('Company fetch error or not found:', companyError);
+      console.error('❌ Company fetch error or not found:', companyError);
       return res.status(404).json({ success: false, error: 'Company not found for user' });
     }
     const companyId = company.id;
-    console.log('Found companyId:', companyId);
     // Fetch leads for this company
     const { data: leads, error: leadsError } = await supabase
       .from('company_leads')
@@ -58,19 +54,18 @@ exports.getLeads = async (req, res) => {
       .eq('company_id', companyId)
       .order('created_at', { ascending: false });
     if (leadsError) {
-      console.error('Leads fetch error:', leadsError);
+      console.error('❌ Leads fetch error:', leadsError);
       return res.status(500).json({ success: false, error: leadsError.message });
     }
     return res.json({ success: true, data: leads });
   } catch (err) {
-    console.error('Exception in getLeads:', err);
+    console.error('❌ Exception in getLeads:', err);
     return res.status(500).json({ success: false, error: 'Internal server error' });
   }
 };
 
 exports.getUserInteractions = async (req, res) => {
   const { lead_id } = req.query;
-  console.log('getUserInteractions called, lead_id:', lead_id);
   if (!lead_id) {
     return res.status(400).json({ success: false, error: 'lead_id is required' });
   }
@@ -80,14 +75,13 @@ exports.getUserInteractions = async (req, res) => {
       .select('id, question, answer, created_at, lead_id')
       .eq('lead_id', lead_id)
       .order('created_at', { ascending: false });
-    console.log('Supabase user_interaction query result:', { data, error });
     if (error) {
-      console.error('Error fetching user interactions:', error);
+      console.error('❌ Error fetching user interactions:', error);
       return res.status(500).json({ success: false, error: error.message });
     }
     return res.json({ success: true, data });
   } catch (err) {
-    console.error('Exception in getUserInteractions:', err);
+    console.error('❌ Exception in getUserInteractions:', err);
     return res.status(500).json({ success: false, error: 'Internal server error' });
   }
 }; 

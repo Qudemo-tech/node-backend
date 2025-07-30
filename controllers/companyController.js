@@ -11,7 +11,7 @@ const companyController = {
      * Create a new company with GCS bucket and associate it with the user
      */
     async createCompany(req, res) {
-        console.log('req.user in createCompany:', req.user);
+    
         try {
             const userId = req.user.userId || req.user.id;
             const { name, displayName, description, website, logo } = req.body;
@@ -52,13 +52,6 @@ const companyController = {
             }
 
             // Create company in database
-            console.log('Inserting company:', {
-                user_id: userId,
-                name,
-                display_name: displayName,
-                is_active: true,
-                created_at: new Date().toISOString()
-            });
             const { data: company, error: insertError } = await supabase
                 .from('companies')
                 .insert({
@@ -103,13 +96,13 @@ const companyController = {
     async getUserCompany(req, res) {
         try {
             const { id: userId } = req.user;
-            console.log('getUserCompany called, userId:', userId);
+
             const { data: company, error } = await supabase
                 .from('companies')
                 .select('*')
                 .eq('user_id', userId)
                 .single();
-            console.log('Supabase company fetch result:', { company, error });
+
             if (error) {
                 if (error.code === 'PGRST116') {
                     // This is not an error, it just means the user has no company yet.

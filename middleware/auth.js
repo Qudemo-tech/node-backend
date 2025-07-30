@@ -31,25 +31,21 @@ function getKey(header, callback) {
  * Verify JWT token middleware
  */
 const authenticateToken = (req, res, next) => {
-    console.log('authenticateToken called');
     const authHeader = req.headers['authorization'];
-    console.log('Authorization header:', authHeader);
     const token = authHeader && authHeader.split(' ')[1];
 
     if (!token) {
-        console.error('No token provided');
+        console.error('❌ No token provided');
         return res.status(401).json({ success: false, error: 'No token provided' });
     }
 
     // Try to verify with your own secret first (for email/password users)
     jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
         if (err) {
-            console.error('JWT verification failed:', err);
+            console.error('❌ JWT verification failed:', err.message);
             return res.status(403).json({ success: false, error: 'Invalid token' });
         }
         req.user = user;
-        console.log('Token verified, user object:', user);
-        console.log('User ID from token:', user.userId);
         return next();
     });
 };

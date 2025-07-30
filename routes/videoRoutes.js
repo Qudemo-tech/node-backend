@@ -90,10 +90,13 @@ const createVideosSchema = Joi.object({
         return helpers.error('any.invalid', { message: 'Company ID or company name is required' });
     }
     
-    // Validate that video URL is a Loom URL
+    // Validate that video URL is a Loom or Vimeo URL
     const videoUrl = value.video_url || value.videoUrl || value.url;
-    if (!videoUrl.includes('loom.com')) {
-        return helpers.error('any.invalid', { message: 'Only Loom video URLs are supported' });
+    const isLoomVideo = videoUrl.includes('loom.com');
+    const isVimeoVideo = videoUrl.includes('vimeo.com');
+    
+    if (!isLoomVideo && !isVimeoVideo) {
+        return helpers.error('any.invalid', { message: 'Only Loom and Vimeo video URLs are supported' });
     }
     
     return value;
@@ -111,14 +114,14 @@ router.get('/health', videoController.checkHealth);
 
 /**
  * @route   POST /api/video/process
- * @desc    Process a Loom video (download, transcribe, upload to GCS)
+ * @desc    Process a Loom or Vimeo video (download, transcribe, upload to GCS)
  * @access  Public
  */
 router.post('/process', validateRequest(processVideoSchema), videoController.processVideo);
 
 /**
  * @route   POST /api/video/process-and-index
- * @desc    Process Loom video and build FAISS index
+ * @desc    Process Loom or Vimeo video and build FAISS index
  * @access  Public
  */
 router.post('/process-and-index', validateRequest(processAndIndexSchema), videoController.processAndIndex);
@@ -153,7 +156,7 @@ router.get('/test-auth', auth.authenticateToken, videoController.testAuth);
 
 /**
  * @route   POST /api/videos
- * @desc    Submit Loom video URLs for processing (QuDemo creation)
+ * @desc    Submit Loom or Vimeo video URLs for processing (QuDemo creation)
  * @access  Private
  */
 router.post('/videos', auth.authenticateToken, validateRequest(createVideosSchema), videoController.createVideos);
@@ -164,7 +167,7 @@ router.post('/videos', auth.authenticateToken, validateRequest(createVideosSchem
  * @access  Private
  */
 router.post('/debug', auth.authenticateToken, (req, res) => {
-    console.log('🔍 DEBUG: Received request data:');
+    
     console.log('Headers:', req.headers);
     console.log('Body:', req.body);
     console.log('Query:', req.query);
