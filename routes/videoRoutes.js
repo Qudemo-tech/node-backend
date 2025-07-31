@@ -90,13 +90,14 @@ const createVideosSchema = Joi.object({
         return helpers.error('any.invalid', { message: 'Company ID or company name is required' });
     }
     
-    // Validate that video URL is a Loom or Vimeo URL
+    // Validate that video URL is a Loom, Vimeo, or YouTube URL
     const videoUrl = value.video_url || value.videoUrl || value.url;
     const isLoomVideo = videoUrl.includes('loom.com');
     const isVimeoVideo = videoUrl.includes('vimeo.com');
+    const isYouTubeVideo = videoUrl.includes('youtube.com') || videoUrl.includes('youtu.be');
     
-    if (!isLoomVideo && !isVimeoVideo) {
-        return helpers.error('any.invalid', { message: 'Only Loom and Vimeo video URLs are supported' });
+    if (!isLoomVideo && !isVimeoVideo && !isYouTubeVideo) {
+        return helpers.error('any.invalid', { message: 'Only Loom, Vimeo, and YouTube video URLs are supported' });
     }
     
     return value;
