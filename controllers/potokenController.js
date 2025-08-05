@@ -232,8 +232,8 @@ class PoTokenController {
                 '--add-header', 'Sec-Fetch-Mode: navigate',
                 '--add-header', 'Sec-Fetch-Site: none',
                 '--add-header', 'Cache-Control: max-age=0',
-                // OAuth 2.0 authentication (if available)
-                ...(process.env.YOUTUBE_OAUTH_TOKEN ? ['--access-token', process.env.YOUTUBE_OAUTH_TOKEN] : []),
+                // OAuth 2.0 authentication via headers (if available)
+                ...(process.env.YOUTUBE_OAUTH_TOKEN ? [`--add-header`, `Authorization: Bearer ${process.env.YOUTUBE_OAUTH_TOKEN}`] : []),
                 // Bot detection bypass options
                 '--extractor-args', 'youtube:player_client=android',
                 '--extractor-args', 'youtube:player_skip=webpage',
@@ -250,6 +250,10 @@ class PoTokenController {
             ];
             
             console.log(`🔧 Node.js yt-dlp command: yt-dlp ${ytDlpArgs.join(' ')}`);
+            console.log('🔐 OAuth token available:', !!process.env.YOUTUBE_OAUTH_TOKEN);
+            if (process.env.YOUTUBE_OAUTH_TOKEN) {
+                console.log('🔐 OAuth token preview:', process.env.YOUTUBE_OAUTH_TOKEN.substring(0, 20) + '...');
+            }
             
             // Try multiple yt-dlp paths
             let ytDlpPath = null;
@@ -371,6 +375,14 @@ try:
             }
         }
     }
+    
+    # Add OAuth token to headers if available
+    ${process.env.YOUTUBE_OAUTH_TOKEN ? `
+    if "${process.env.YOUTUBE_OAUTH_TOKEN}":
+        headers["Authorization"] = f"Bearer {process.env.YOUTUBE_OAUTH_TOKEN}"
+        ydl_opts["http_headers"] = headers
+        print(f"Using OAuth token: {process.env.YOUTUBE_OAUTH_TOKEN[:20]}...")
+    ` : ''}
     
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         ydl.download(["${videoUrl}"])
