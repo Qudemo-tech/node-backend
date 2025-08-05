@@ -18,25 +18,38 @@ class PoTokenController {
                 if (error || !stdout.trim()) {
                     console.log('⚠️ yt-dlp not found, installing...');
                     
-                    // Install yt-dlp using pip (more reliable on Render)
-                    exec('pip install yt-dlp', (installError, installStdout, installStderr) => {
-                        if (!installError) {
+                    // Try apt-get first (system package manager)
+                    exec('apt-get update && apt-get install -y yt-dlp', (aptError, aptStdout, aptStderr) => {
+                        if (!aptError) {
                             this.isYtDlpAvailable = true;
-                            console.log('✅ yt-dlp installed successfully via pip');
-                            console.log('📤 Install output:', installStdout);
+                            console.log('✅ yt-dlp installed successfully via apt-get');
+                            console.log('📤 Install output:', aptStdout);
                         } else {
-                            console.error('❌ Failed to install yt-dlp via pip:', installError);
-                            console.error('📥 Install stderr:', installStderr);
+                            console.error('❌ Failed to install yt-dlp via apt-get:', aptError);
+                            console.error('📥 Install stderr:', aptStderr);
                             
-                            // Fallback: try curl method
-                            console.log('🔄 Trying curl fallback installation...');
-                            exec('curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o yt-dlp && chmod +x yt-dlp && mv yt-dlp /usr/local/bin/', (curlError) => {
-                                if (!curlError) {
+                            // Fallback: try pip with --break-system-packages
+                            console.log('🔄 Trying pip with --break-system-packages...');
+                            exec('pip install --break-system-packages yt-dlp', (pipError, pipStdout, pipStderr) => {
+                                if (!pipError) {
                                     this.isYtDlpAvailable = true;
-                                    console.log('✅ yt-dlp installed successfully via curl');
+                                    console.log('✅ yt-dlp installed successfully via pip');
+                                    console.log('📤 Install output:', pipStdout);
                                 } else {
-                                    console.error('❌ Failed to install yt-dlp via curl:', curlError);
-                                    this.isYtDlpAvailable = false;
+                                    console.error('❌ Failed to install yt-dlp via pip:', pipError);
+                                    console.error('📥 Install stderr:', pipStderr);
+                                    
+                                    // Final fallback: try curl to local directory
+                                    console.log('🔄 Trying curl to local directory...');
+                                    exec('curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o ./yt-dlp && chmod +x ./yt-dlp', (curlError) => {
+                                        if (!curlError) {
+                                            this.isYtDlpAvailable = true;
+                                            console.log('✅ yt-dlp installed successfully via curl to local directory');
+                                        } else {
+                                            console.error('❌ Failed to install yt-dlp via curl:', curlError);
+                                            this.isYtDlpAvailable = false;
+                                        }
+                                    });
                                 }
                             });
                         }
@@ -224,7 +237,11 @@ class PoTokenController {
             
             console.log(`🔧 Node.js yt-dlp command: yt-dlp ${ytDlpArgs.join(' ')}`);
             
-            const ytDlpProcess = spawn('yt-dlp', ytDlpArgs);
+            // Try to use local yt-dlp first, then system yt-dlp
+            const ytDlpPath = fs.existsSync('./yt-dlp') ? './yt-dlp' : 'yt-dlp';
+            console.log(`🔧 Using yt-dlp path: ${ytDlpPath}`);
+            
+            const ytDlpProcess = spawn(ytDlpPath, ytDlpArgs);
             
             let stdout = '';
             let stderr = '';
