@@ -12,25 +12,53 @@ class PoTokenController {
     async checkYtDlpAvailability() {
         try {
             const { exec } = require('child_process');
-            exec('yt-dlp --version', (error, stdout) => {
-                if (!error && stdout) {
-                    this.isYtDlpAvailable = true;
-                    console.log('✅ yt-dlp available for video processing:', stdout.trim());
-                } else {
-                    console.warn('⚠️ yt-dlp not available for video processing, trying to install...');
-                    // Try to install yt-dlp if not available
-                    exec('curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o yt-dlp && chmod +x yt-dlp', (installError) => {
+            
+            // First, try to install yt-dlp if it doesn't exist
+            exec('which yt-dlp', (error, stdout) => {
+                if (error || !stdout.trim()) {
+                    console.log('⚠️ yt-dlp not found, installing...');
+                    
+                    // Install yt-dlp using pip (more reliable on Render)
+                    exec('pip install yt-dlp', (installError, installStdout, installStderr) => {
                         if (!installError) {
                             this.isYtDlpAvailable = true;
-                            console.log('✅ yt-dlp installed successfully');
+                            console.log('✅ yt-dlp installed successfully via pip');
+                            console.log('📤 Install output:', installStdout);
                         } else {
-                            console.error('❌ Failed to install yt-dlp:', installError);
+                            console.error('❌ Failed to install yt-dlp via pip:', installError);
+                            console.error('📥 Install stderr:', installStderr);
+                            
+                            // Fallback: try curl method
+                            console.log('🔄 Trying curl fallback installation...');
+                            exec('curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o yt-dlp && chmod +x yt-dlp && mv yt-dlp /usr/local/bin/', (curlError) => {
+                                if (!curlError) {
+                                    this.isYtDlpAvailable = true;
+                                    console.log('✅ yt-dlp installed successfully via curl');
+                                } else {
+                                    console.error('❌ Failed to install yt-dlp via curl:', curlError);
+                                    this.isYtDlpAvailable = false;
+                                }
+                            });
+                        }
+                    });
+                } else {
+                    // yt-dlp exists, check version
+                    exec('yt-dlp --version', (versionError, versionStdout) => {
+                        if (!versionError && versionStdout) {
+                            this.isYtDlpAvailable = true;
+                            console.log('✅ yt-dlp available for video processing:', versionStdout.trim());
+                        } else {
+                            console.warn('⚠️ yt-dlp found but version check failed, reinstalling...');
+                            this.isYtDlpAvailable = false;
+                            // Trigger reinstall
+                            this.checkYtDlpAvailability();
                         }
                     });
                 }
             });
         } catch (error) {
             console.error('❌ Error checking yt-dlp availability:', error);
+            this.isYtDlpAvailable = false;
         }
     }
 
@@ -149,77 +177,179 @@ class PoTokenController {
         try {
             console.log(`📥 Downloading with yt-dlp: ${videoUrl}`);
             
-            return new Promise((resolve, reject) => {
-                const { spawn } = require('child_process');
+            // First try Node.js yt-dlp
+            try {
+                return await this.downloadWithNodeYtDlp(videoUrl, outputPath);
+            } catch (nodeError) {
+                console.error(`❌ Node.js yt-dlp failed: ${nodeError.message}`);
                 
-                // Enhanced yt-dlp download command with headers method
-                const ytDlpArgs = [
-                    '--output', outputPath,
-                    '--format', 'best[ext=mp4]/best',
-                    '--no-warnings',
-                    '--no-check-certificate',
-                    '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-                    '--add-header', 'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-                    '--add-header', 'Accept-Language: en-US,en;q=0.9',
-                    '--add-header', 'Accept-Encoding: gzip, deflate, br',
-                    '--add-header', 'DNT: 1',
-                    '--add-header', 'Connection: keep-alive',
-                    '--add-header', 'Upgrade-Insecure-Requests: 1',
-                    '--add-header', 'Sec-Fetch-Dest: document',
-                    '--add-header', 'Sec-Fetch-Mode: navigate',
-                    '--add-header', 'Sec-Fetch-Site: none',
-                    '--add-header', 'Cache-Control: max-age=0',
-                    videoUrl
-                ];
-                
-                console.log(`🔧 yt-dlp command: yt-dlp ${ytDlpArgs.join(' ')}`);
-                
-                const ytDlpProcess = spawn('yt-dlp', ytDlpArgs);
-                
-                let stdout = '';
-                let stderr = '';
-                
-                ytDlpProcess.stdout.on('data', (data) => {
-                    stdout += data.toString();
-                    console.log(`📤 yt-dlp stdout: ${data.toString()}`);
-                });
-                
-                ytDlpProcess.stderr.on('data', (data) => {
-                    stderr += data.toString();
-                    console.log(`📥 yt-dlp stderr: ${data.toString()}`);
-                });
-                
-                ytDlpProcess.on('close', (code) => {
-                    console.log(`🔚 yt-dlp process closed with code: ${code}`);
-                    if (code === 0) {
-                        // Check if file was actually downloaded
-                        if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 0) {
-                            console.log(`✅ Download successful: ${outputPath} (${fs.statSync(outputPath).size} bytes)`);
-                            resolve({
-                                success: true,
-                                filePath: outputPath,
-                                method: 'yt-dlp-enhanced-headers',
-                                fileSize: fs.statSync(outputPath).size
-                            });
-                        } else {
-                            console.error(`❌ File not found or empty: ${outputPath}`);
-                            reject(new Error('Download completed but file is empty or missing'));
-                        }
-                    } else {
-                        console.error(`❌ yt-dlp failed with code ${code}: ${stderr}`);
-                        reject(new Error(`Download failed with code ${code}: ${stderr}`));
-                    }
-                });
-                
-                ytDlpProcess.on('error', (error) => {
-                    console.error(`❌ yt-dlp process error: ${error.message}`);
-                    reject(new Error(`Download process error: ${error.message}`));
-                });
-            });
+                // Fallback to Python yt-dlp
+                console.log('🔄 Trying Python yt-dlp fallback...');
+                try {
+                    return await this.downloadWithPythonYtDlp(videoUrl, outputPath);
+                } catch (pythonError) {
+                    console.error(`❌ Python yt-dlp also failed: ${pythonError.message}`);
+                    throw new Error(`Both Node.js and Python yt-dlp failed. Node: ${nodeError.message}, Python: ${pythonError.message}`);
+                }
+            }
         } catch (error) {
             console.error(`❌ Download error: ${error.message}`);
             throw error;
         }
+    }
+
+    async downloadWithNodeYtDlp(videoUrl, outputPath) {
+        return new Promise((resolve, reject) => {
+            const { spawn } = require('child_process');
+            
+            // Enhanced yt-dlp download command with headers method
+            const ytDlpArgs = [
+                '--output', outputPath,
+                '--format', 'best[ext=mp4]/best',
+                '--no-warnings',
+                '--no-check-certificate',
+                '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                '--add-header', 'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+                '--add-header', 'Accept-Language: en-US,en;q=0.9',
+                '--add-header', 'Accept-Encoding: gzip, deflate, br',
+                '--add-header', 'DNT: 1',
+                '--add-header', 'Connection: keep-alive',
+                '--add-header', 'Upgrade-Insecure-Requests: 1',
+                '--add-header', 'Sec-Fetch-Dest: document',
+                '--add-header', 'Sec-Fetch-Mode: navigate',
+                '--add-header', 'Sec-Fetch-Site: none',
+                '--add-header', 'Cache-Control: max-age=0',
+                videoUrl
+            ];
+            
+            console.log(`🔧 Node.js yt-dlp command: yt-dlp ${ytDlpArgs.join(' ')}`);
+            
+            const ytDlpProcess = spawn('yt-dlp', ytDlpArgs);
+            
+            let stdout = '';
+            let stderr = '';
+            
+            ytDlpProcess.stdout.on('data', (data) => {
+                stdout += data.toString();
+                console.log(`📤 Node.js yt-dlp stdout: ${data.toString()}`);
+            });
+            
+            ytDlpProcess.stderr.on('data', (data) => {
+                stderr += data.toString();
+                console.log(`📥 Node.js yt-dlp stderr: ${data.toString()}`);
+            });
+            
+            ytDlpProcess.on('close', (code) => {
+                console.log(`🔚 Node.js yt-dlp process closed with code: ${code}`);
+                if (code === 0) {
+                    // Check if file was actually downloaded
+                    if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 0) {
+                        console.log(`✅ Node.js yt-dlp download successful: ${outputPath} (${fs.statSync(outputPath).size} bytes)`);
+                        resolve({
+                            success: true,
+                            filePath: outputPath,
+                            method: 'yt-dlp-node-enhanced-headers',
+                            fileSize: fs.statSync(outputPath).size
+                        });
+                    } else {
+                        console.error(`❌ Node.js yt-dlp file not found or empty: ${outputPath}`);
+                        reject(new Error('Node.js yt-dlp download completed but file is empty or missing'));
+                    }
+                } else {
+                    console.error(`❌ Node.js yt-dlp failed with code ${code}: ${stderr}`);
+                    reject(new Error(`Node.js yt-dlp failed with code ${code}: ${stderr}`));
+                }
+            });
+            
+            ytDlpProcess.on('error', (error) => {
+                console.error(`❌ Node.js yt-dlp process error: ${error.message}`);
+                reject(new Error(`Node.js yt-dlp process error: ${error.message}`));
+            });
+        });
+    }
+
+    async downloadWithPythonYtDlp(videoUrl, outputPath) {
+        return new Promise((resolve, reject) => {
+            const { spawn } = require('child_process');
+            
+            // Python script to download with yt-dlp
+            const pythonScript = `
+import yt_dlp
+import sys
+import os
+
+try:
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+    }
+    
+    ydl_opts = {
+        "outtmpl": "${outputPath}",
+        "format": "best[ext=mp4]/best",
+        "http_headers": headers,
+        "no_warnings": True,
+        "quiet": True
+    }
+    
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        ydl.download(["${videoUrl}"])
+    
+    if os.path.exists("${outputPath}") and os.path.getsize("${outputPath}") > 0:
+        print(f"SUCCESS: {os.path.getsize('${outputPath}')} bytes")
+    else:
+        print("ERROR: File not found or empty")
+        sys.exit(1)
+        
+except Exception as e:
+    print(f"ERROR: {str(e)}")
+    sys.exit(1)
+`;
+            
+            console.log(`🔧 Python yt-dlp script for: ${videoUrl} -> ${outputPath}`);
+            
+            const pythonProcess = spawn('python3', ['-c', pythonScript]);
+            
+            let stdout = '';
+            let stderr = '';
+            
+            pythonProcess.stdout.on('data', (data) => {
+                stdout += data.toString();
+                console.log(`📤 Python yt-dlp stdout: ${data.toString()}`);
+            });
+            
+            pythonProcess.stderr.on('data', (data) => {
+                stderr += data.toString();
+                console.log(`📥 Python yt-dlp stderr: ${data.toString()}`);
+            });
+            
+            pythonProcess.on('close', (code) => {
+                console.log(`🔚 Python yt-dlp process closed with code: ${code}`);
+                if (code === 0 && stdout.includes('SUCCESS:')) {
+                    // Check if file was actually downloaded
+                    if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 0) {
+                        const fileSize = fs.statSync(outputPath).size;
+                        console.log(`✅ Python yt-dlp download successful: ${outputPath} (${fileSize} bytes)`);
+                        resolve({
+                            success: true,
+                            filePath: outputPath,
+                            method: 'yt-dlp-python-fallback',
+                            fileSize: fileSize
+                        });
+                    } else {
+                        console.error(`❌ Python yt-dlp file not found or empty: ${outputPath}`);
+                        reject(new Error('Python yt-dlp download completed but file is empty or missing'));
+                    }
+                } else {
+                    console.error(`❌ Python yt-dlp failed with code ${code}: ${stderr}`);
+                    reject(new Error(`Python yt-dlp failed with code ${code}: ${stderr}`));
+                }
+            });
+            
+            pythonProcess.on('error', (error) => {
+                console.error(`❌ Python yt-dlp process error: ${error.message}`);
+                reject(new Error(`Python yt-dlp process error: ${error.message}`));
+            });
+        });
     }
 }
 
