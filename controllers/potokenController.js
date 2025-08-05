@@ -16,7 +16,16 @@ class PoTokenController {
                     this.isYtDlpAvailable = true;
                     console.log('✅ yt-dlp available for video processing:', stdout.trim());
                 } else {
-                    console.warn('⚠️ yt-dlp not available for video processing');
+                    console.warn('⚠️ yt-dlp not available for video processing, trying to install...');
+                    // Try to install yt-dlp if not available
+                    exec('curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o yt-dlp && chmod +x yt-dlp', (installError) => {
+                        if (!installError) {
+                            this.isYtDlpAvailable = true;
+                            console.log('✅ yt-dlp installed successfully');
+                        } else {
+                            console.error('❌ Failed to install yt-dlp:', installError);
+                        }
+                    });
                 }
             });
         } catch (error) {

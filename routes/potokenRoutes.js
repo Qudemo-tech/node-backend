@@ -7,7 +7,7 @@ router.get('/health', (req, res) => {
     res.json({
         status: 'healthy',
         service: 'potoken-service',
-        nodeAvailable: potokenController.isNodeAvailable,
+        nodeAvailable: potokenController.isYtDlpAvailable,
         timestamp: new Date().toISOString()
     });
 });
