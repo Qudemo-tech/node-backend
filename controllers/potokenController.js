@@ -215,7 +215,7 @@ class PoTokenController {
         return new Promise((resolve, reject) => {
             const { spawn } = require('child_process');
             
-            // Enhanced yt-dlp download command with headers method
+            // Enhanced yt-dlp download command with headers method and bot detection bypass
             const ytDlpArgs = [
                 '--output', outputPath,
                 '--format', 'best[ext=mp4]/best',
@@ -232,16 +232,60 @@ class PoTokenController {
                 '--add-header', 'Sec-Fetch-Mode: navigate',
                 '--add-header', 'Sec-Fetch-Site: none',
                 '--add-header', 'Cache-Control: max-age=0',
+                // Bot detection bypass options
+                '--cookies-from-browser', 'chrome',
+                '--extractor-args', 'youtube:player_client=android',
+                '--extractor-args', 'youtube:player_skip=webpage',
+                '--extractor-args', 'youtube:player_params={"hl":"en","gl":"US"}',
                 videoUrl
             ];
             
             console.log(`🔧 Node.js yt-dlp command: yt-dlp ${ytDlpArgs.join(' ')}`);
             
-            // Try to use local yt-dlp first, then system yt-dlp
-            const ytDlpPath = fs.existsSync('./yt-dlp') ? './yt-dlp' : 'yt-dlp';
-            console.log(`🔧 Using yt-dlp path: ${ytDlpPath}`);
+            // Try multiple yt-dlp paths
+            let ytDlpPath = null;
+            const possiblePaths = [
+                './yt-dlp',
+                'yt-dlp',
+                'python3 -m yt_dlp',
+                'python -m yt_dlp',
+                '~/.local/bin/yt-dlp'
+            ];
             
-            const ytDlpProcess = spawn(ytDlpPath, ytDlpArgs);
+            for (const path of possiblePaths) {
+                try {
+                    if (path.includes('python')) {
+                        // For Python module paths, test differently
+                        const testProcess = spawn('python3', ['-c', 'import yt_dlp; print("OK")']);
+                        testProcess.on('close', (code) => {
+                            if (code === 0) {
+                                ytDlpPath = path;
+                                console.log(`✅ Found yt-dlp at: ${path}`);
+                            }
+                        });
+                    } else if (fs.existsSync(path)) {
+                        ytDlpPath = path;
+                        console.log(`✅ Found yt-dlp at: ${path}`);
+                        break;
+                    }
+                } catch (e) {
+                    console.log(`❌ Path not found: ${path}`);
+                }
+            }
+            
+            if (!ytDlpPath) {
+                // Fallback to python module
+                ytDlpPath = 'python3 -m yt_dlp';
+                console.log(`🔧 Using fallback yt-dlp path: ${ytDlpPath}`);
+            }
+            
+            // Split command for python module
+            const [command, ...args] = ytDlpPath.split(' ');
+            const finalArgs = [...args, ...ytDlpArgs];
+            
+            console.log(`🔧 Final command: ${command} ${finalArgs.join(' ')}`);
+            
+            const ytDlpProcess = spawn(command, finalArgs);
             
             let stdout = '';
             let stderr = '';
@@ -289,7 +333,7 @@ class PoTokenController {
         return new Promise((resolve, reject) => {
             const { spawn } = require('child_process');
             
-            // Python script to download with yt-dlp
+            // Python script to download with yt-dlp and bot detection bypass
             const pythonScript = `
 import yt_dlp
 import sys
@@ -305,7 +349,15 @@ try:
         "format": "best[ext=mp4]/best",
         "http_headers": headers,
         "no_warnings": True,
-        "quiet": True
+        "quiet": True,
+        # Bot detection bypass options
+        "extractor_args": {
+            "youtube": {
+                "player_client": ["android"],
+                "player_skip": ["webpage"],
+                "player_params": {"hl": "en", "gl": "US"}
+            }
+        }
     }
     
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
