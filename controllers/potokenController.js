@@ -1,6 +1,7 @@
 const axios = require('axios');
 const { spawn } = require('child_process');
 const path = require('path');
+const fs = require('fs');
 
 class PoTokenController {
     constructor() {
@@ -64,18 +65,22 @@ class PoTokenController {
         return new Promise((resolve, reject) => {
             const { spawn } = require('child_process');
             
-            // Enhanced yt-dlp command with anti-bot headers
+            // Enhanced yt-dlp command with anti-bot headers (same as download method)
             const ytDlpArgs = [
                 '--dump-json',
                 '--no-warnings',
                 '--no-check-certificate',
-                '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
                 '--add-header', 'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
                 '--add-header', 'Accept-Language: en-US,en;q=0.9',
                 '--add-header', 'Accept-Encoding: gzip, deflate, br',
                 '--add-header', 'DNT: 1',
                 '--add-header', 'Connection: keep-alive',
                 '--add-header', 'Upgrade-Insecure-Requests: 1',
+                '--add-header', 'Sec-Fetch-Dest: document',
+                '--add-header', 'Sec-Fetch-Mode: navigate',
+                '--add-header', 'Sec-Fetch-Site: none',
+                '--add-header', 'Cache-Control: max-age=0',
                 videoUrl
             ];
             
@@ -147,21 +152,27 @@ class PoTokenController {
             return new Promise((resolve, reject) => {
                 const { spawn } = require('child_process');
                 
-                // Enhanced yt-dlp download command
+                // Enhanced yt-dlp download command with headers method
                 const ytDlpArgs = [
                     '--output', outputPath,
                     '--format', 'best[ext=mp4]/best',
                     '--no-warnings',
                     '--no-check-certificate',
-                    '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
                     '--add-header', 'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
                     '--add-header', 'Accept-Language: en-US,en;q=0.9',
                     '--add-header', 'Accept-Encoding: gzip, deflate, br',
                     '--add-header', 'DNT: 1',
                     '--add-header', 'Connection: keep-alive',
                     '--add-header', 'Upgrade-Insecure-Requests: 1',
+                    '--add-header', 'Sec-Fetch-Dest: document',
+                    '--add-header', 'Sec-Fetch-Mode: navigate',
+                    '--add-header', 'Sec-Fetch-Site: none',
+                    '--add-header', 'Cache-Control: max-age=0',
                     videoUrl
                 ];
+                
+                console.log(`🔧 yt-dlp command: yt-dlp ${ytDlpArgs.join(' ')}`);
                 
                 const ytDlpProcess = spawn('yt-dlp', ytDlpArgs);
                 
@@ -170,35 +181,43 @@ class PoTokenController {
                 
                 ytDlpProcess.stdout.on('data', (data) => {
                     stdout += data.toString();
+                    console.log(`📤 yt-dlp stdout: ${data.toString()}`);
                 });
                 
                 ytDlpProcess.stderr.on('data', (data) => {
                     stderr += data.toString();
+                    console.log(`📥 yt-dlp stderr: ${data.toString()}`);
                 });
                 
                 ytDlpProcess.on('close', (code) => {
+                    console.log(`🔚 yt-dlp process closed with code: ${code}`);
                     if (code === 0) {
                         // Check if file was actually downloaded
-                        const fs = require('fs');
                         if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 0) {
+                            console.log(`✅ Download successful: ${outputPath} (${fs.statSync(outputPath).size} bytes)`);
                             resolve({
                                 success: true,
                                 filePath: outputPath,
-                                method: 'yt-dlp-enhanced'
+                                method: 'yt-dlp-enhanced-headers',
+                                fileSize: fs.statSync(outputPath).size
                             });
                         } else {
+                            console.error(`❌ File not found or empty: ${outputPath}`);
                             reject(new Error('Download completed but file is empty or missing'));
                         }
                     } else {
+                        console.error(`❌ yt-dlp failed with code ${code}: ${stderr}`);
                         reject(new Error(`Download failed with code ${code}: ${stderr}`));
                     }
                 });
                 
                 ytDlpProcess.on('error', (error) => {
+                    console.error(`❌ yt-dlp process error: ${error.message}`);
                     reject(new Error(`Download process error: ${error.message}`));
                 });
             });
         } catch (error) {
+            console.error(`❌ Download error: ${error.message}`);
             throw error;
         }
     }

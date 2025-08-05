@@ -84,7 +84,10 @@ router.post('/download', async (req, res) => {
     try {
         const { videoUrl, outputPath } = req.body;
         
+        console.log(`📥 PoToken download request received:`, { videoUrl, outputPath });
+        
         if (!videoUrl) {
+            console.error('❌ Missing videoUrl in request');
             return res.status(400).json({
                 success: false,
                 error: 'videoUrl is required'
@@ -92,15 +95,36 @@ router.post('/download', async (req, res) => {
         }
 
         if (!outputPath) {
+            console.error('❌ Missing outputPath in request');
             return res.status(400).json({
                 success: false,
                 error: 'outputPath is required'
             });
         }
 
-        console.log(`📥 PoToken download requested: ${videoUrl} -> ${outputPath}`);
+        // Validate YouTube URL
+        if (!videoUrl.includes('youtube.com') && !videoUrl.includes('youtu.be')) {
+            console.error('❌ Non-YouTube URL provided:', videoUrl);
+            return res.status(400).json({
+                success: false,
+                error: 'Only YouTube URLs are supported for PoToken download'
+            });
+        }
+
+        console.log(`🚀 Starting PoToken download: ${videoUrl} -> ${outputPath}`);
+        
+        // Check if yt-dlp is available
+        if (!potokenController.isYtDlpAvailable) {
+            console.error('❌ yt-dlp not available for download');
+            return res.status(503).json({
+                success: false,
+                error: 'yt-dlp not available. Please try again in a moment.'
+            });
+        }
         
         const result = await potokenController.downloadWithPoToken(videoUrl, outputPath);
+        
+        console.log(`✅ PoToken download successful:`, result);
         
         res.json({
             success: true,
@@ -109,9 +133,12 @@ router.post('/download', async (req, res) => {
         
     } catch (error) {
         console.error('❌ PoToken download error:', error);
+        console.error('❌ Error stack:', error.stack);
+        
         res.status(500).json({
             success: false,
-            error: error.message
+            error: error.message,
+            details: process.env.NODE_ENV === 'development' ? error.stack : undefined
         });
     }
 });
