@@ -18,6 +18,7 @@ const helpRoutes = require('./routes/helpRoutes');
 const videoRoutes = require('./routes/videoRoutes');
 const companyRoutes = require('./routes/companyRoutes');
 const queueRoutes = require('./routes/queueRoutes');
+const potokenRoutes = require('./routes/potokenRoutes');
 
 // Import middleware
 const { videoConcurrencyControl, qaConcurrencyControl, prioritizeRequests, queueStatus, requestTimeout, healthCheck } = require('./middleware/concurrency');
@@ -107,6 +108,7 @@ app.use('/api/help', helpRoutes);
 app.use('/api/video', videoConcurrencyControl, requestTimeout(300000), videoRoutes);
 app.use('/api/companies', companyRoutes);
 app.use('/api/queue', queueRoutes);
+app.use('/api/potoken', potokenRoutes);
 
 // 404 handler
 app.use('*', (req, res) => {
