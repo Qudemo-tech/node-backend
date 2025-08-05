@@ -215,7 +215,7 @@ class PoTokenController {
         return new Promise((resolve, reject) => {
             const { spawn } = require('child_process');
             
-            // Enhanced yt-dlp download command with headers method and bot detection bypass
+            // Enhanced yt-dlp download command with OAuth 2.0 and bot detection bypass
             const ytDlpArgs = [
                 '--output', outputPath,
                 '--format', 'best[ext=mp4]/best',
@@ -232,7 +232,9 @@ class PoTokenController {
                 '--add-header', 'Sec-Fetch-Mode: navigate',
                 '--add-header', 'Sec-Fetch-Site: none',
                 '--add-header', 'Cache-Control: max-age=0',
-                // Bot detection bypass options (without cookies)
+                // OAuth 2.0 authentication (if available)
+                ...(process.env.YOUTUBE_OAUTH_TOKEN ? ['--access-token', process.env.YOUTUBE_OAUTH_TOKEN] : []),
+                // Bot detection bypass options
                 '--extractor-args', 'youtube:player_client=android',
                 '--extractor-args', 'youtube:player_skip=webpage',
                 '--extractor-args', 'youtube:player_params={"hl":"en","gl":"US"}',
@@ -240,6 +242,10 @@ class PoTokenController {
                 '--extractor-args', 'youtube:player_client=web',
                 '--extractor-args', 'youtube:skip=hls,dash',
                 '--extractor-args', 'youtube:player_skip=webpage,configs',
+                // Enhanced bypass for OAuth
+                '--extractor-args', 'youtube:player_client=web,android',
+                '--extractor-args', 'youtube:player_skip=webpage,configs,js',
+                '--extractor-args', 'youtube:player_params={"hl":"en","gl":"US","client":"web"}',
                 videoUrl
             ];
             
@@ -336,7 +342,7 @@ class PoTokenController {
         return new Promise((resolve, reject) => {
             const { spawn } = require('child_process');
             
-            // Python script to download with yt-dlp and bot detection bypass
+            // Python script to download with yt-dlp, OAuth 2.0, and bot detection bypass
             const pythonScript = `
 import yt_dlp
 import sys
@@ -353,12 +359,14 @@ try:
         "http_headers": headers,
         "no_warnings": True,
         "quiet": True,
+        # OAuth 2.0 authentication (if available)
+        ${process.env.YOUTUBE_OAUTH_TOKEN ? `"access_token": "${process.env.YOUTUBE_OAUTH_TOKEN}",` : ''}
         # Bot detection bypass options
         "extractor_args": {
             "youtube": {
                 "player_client": ["android", "web"],
-                "player_skip": ["webpage", "configs"],
-                "player_params": {"hl": "en", "gl": "US"},
+                "player_skip": ["webpage", "configs", "js"],
+                "player_params": {"hl": "en", "gl": "US", "client": "web"},
                 "skip": ["hls", "dash"]
             }
         }
