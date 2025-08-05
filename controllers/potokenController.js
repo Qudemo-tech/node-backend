@@ -232,11 +232,14 @@ class PoTokenController {
                 '--add-header', 'Sec-Fetch-Mode: navigate',
                 '--add-header', 'Sec-Fetch-Site: none',
                 '--add-header', 'Cache-Control: max-age=0',
-                // Bot detection bypass options
-                '--cookies-from-browser', 'chrome',
+                // Bot detection bypass options (without cookies)
                 '--extractor-args', 'youtube:player_client=android',
                 '--extractor-args', 'youtube:player_skip=webpage',
                 '--extractor-args', 'youtube:player_params={"hl":"en","gl":"US"}',
+                // Additional bypass options
+                '--extractor-args', 'youtube:player_client=web',
+                '--extractor-args', 'youtube:skip=hls,dash',
+                '--extractor-args', 'youtube:player_skip=webpage,configs',
                 videoUrl
             ];
             
@@ -353,9 +356,10 @@ try:
         # Bot detection bypass options
         "extractor_args": {
             "youtube": {
-                "player_client": ["android"],
-                "player_skip": ["webpage"],
-                "player_params": {"hl": "en", "gl": "US"}
+                "player_client": ["android", "web"],
+                "player_skip": ["webpage", "configs"],
+                "player_params": {"hl": "en", "gl": "US"},
+                "skip": ["hls", "dash"]
             }
         }
     }
