@@ -313,7 +313,14 @@ class PoTokenController {
                 console.log(`📥 Node.js yt-dlp stderr: ${data.toString()}`);
             });
             
+            // Add timeout to prevent hanging
+            const timeout = setTimeout(() => {
+                ytDlpProcess.kill();
+                reject(new Error('yt-dlp process timed out after 60 seconds'));
+            }, 60000);
+            
             ytDlpProcess.on('close', (code) => {
+                clearTimeout(timeout);
                 console.log(`🔚 Node.js yt-dlp process closed with code: ${code}`);
                 if (code === 0) {
                     // Check if file was actually downloaded
@@ -357,6 +364,14 @@ try:
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
     }
     
+    # Get OAuth token from environment
+    oauth_token = os.getenv('YOUTUBE_OAUTH_TOKEN')
+    if oauth_token:
+        headers["Authorization"] = f"Bearer {oauth_token}"
+        print(f"Using OAuth token: {oauth_token[:20]}...")
+    else:
+        print("No OAuth token found in environment")
+    
     ydl_opts = {
         "outtmpl": "${outputPath}",
         "format": "best[ext=mp4]/best",
@@ -376,13 +391,7 @@ try:
         }
     }
     
-    # Add OAuth token to headers if available
-    ${process.env.YOUTUBE_OAUTH_TOKEN ? `
-    if "${process.env.YOUTUBE_OAUTH_TOKEN}":
-        headers["Authorization"] = f"Bearer {process.env.YOUTUBE_OAUTH_TOKEN}"
-        ydl_opts["http_headers"] = headers
-        print(f"Using OAuth token: {process.env.YOUTUBE_OAUTH_TOKEN[:20]}...")
-    ` : ''}
+    print(f"yt-dlp options: {ydl_opts}")
     
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         ydl.download(["${videoUrl}"])
@@ -405,6 +414,12 @@ except Exception as e:
             let stdout = '';
             let stderr = '';
             
+            // Add timeout to prevent hanging
+            const pythonTimeout = setTimeout(() => {
+                pythonProcess.kill();
+                reject(new Error('Python yt-dlp process timed out after 60 seconds'));
+            }, 60000);
+            
             pythonProcess.stdout.on('data', (data) => {
                 stdout += data.toString();
                 console.log(`📤 Python yt-dlp stdout: ${data.toString()}`);
@@ -416,6 +431,7 @@ except Exception as e:
             });
             
             pythonProcess.on('close', (code) => {
+                clearTimeout(pythonTimeout);
                 console.log(`🔚 Python yt-dlp process closed with code: ${code}`);
                 if (code === 0 && stdout.includes('SUCCESS:')) {
                     // Check if file was actually downloaded
