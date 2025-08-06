@@ -215,7 +215,15 @@ class PoTokenController {
                                 return await this.downloadWithSimpleYtDlp(videoUrl, outputPath);
                             } catch (simpleError) {
                                 console.error(`❌ Simple yt-dlp also failed: ${simpleError.message}`);
-                                throw new Error(`All methods failed. OAuth: ${nodeError.message}, Enhanced: ${pythonError.message}, Simple: ${simpleError.message}`);
+                                
+                                // Try alternative yt-dlp as final fallback
+                                console.log('🔄 Trying alternative yt-dlp with TV client...');
+                                try {
+                                    return await this.downloadWithAlternativeYtDlp(videoUrl, outputPath);
+                                } catch (alternativeError) {
+                                    console.error(`❌ Alternative yt-dlp also failed: ${alternativeError.message}`);
+                                    throw new Error(`All methods failed. OAuth: ${nodeError.message}, Enhanced: ${pythonError.message}, Simple: ${simpleError.message}, Alternative: ${alternativeError.message}`);
+                                }
                             }
                         }
                     } else {
@@ -232,7 +240,15 @@ class PoTokenController {
                                 return await this.downloadWithSimpleYtDlp(videoUrl, outputPath);
                             } catch (simpleError) {
                                 console.error(`❌ Simple yt-dlp also failed: ${simpleError.message}`);
-                                throw new Error(`All methods failed. OAuth: ${nodeError.message}, Python OAuth: ${pythonError.message}, Simple: ${simpleError.message}`);
+                                
+                                // Try alternative yt-dlp as final fallback
+                                console.log('🔄 Trying alternative yt-dlp with TV client...');
+                                try {
+                                    return await this.downloadWithAlternativeYtDlp(videoUrl, outputPath);
+                                } catch (alternativeError) {
+                                    console.error(`❌ Alternative yt-dlp also failed: ${alternativeError.message}`);
+                                    throw new Error(`All methods failed. OAuth: ${nodeError.message}, Python OAuth: ${pythonError.message}, Simple: ${simpleError.message}, Alternative: ${alternativeError.message}`);
+                                }
                             }
                         }
                     }
@@ -258,7 +274,15 @@ class PoTokenController {
                             return await this.downloadWithSimpleYtDlp(videoUrl, outputPath);
                         } catch (simpleError) {
                             console.error(`❌ Simple yt-dlp also failed: ${simpleError.message}`);
-                            throw new Error(`All methods failed. Node: ${nodeError.message}, Python: ${pythonError.message}, Simple: ${simpleError.message}`);
+                            
+                            // Try alternative yt-dlp as final fallback
+                            console.log('🔄 Trying alternative yt-dlp with TV client...');
+                            try {
+                                return await this.downloadWithAlternativeYtDlp(videoUrl, outputPath);
+                            } catch (alternativeError) {
+                                console.error(`❌ Alternative yt-dlp also failed: ${alternativeError.message}`);
+                                throw new Error(`All methods failed. Node: ${nodeError.message}, Python: ${pythonError.message}, Simple: ${simpleError.message}, Alternative: ${alternativeError.message}`);
+                            }
                         }
                     }
                 }
@@ -552,9 +576,6 @@ except Exception as e:
                 '--extractor-args', 'youtube:player_client=android',
                 '--extractor-args', 'youtube:player_skip=webpage,configs',
                 '--extractor-args', 'youtube:player_params={"hl":"en","gl":"US","client":"android"}',
-                // Cookie bypass attempt
-                '--cookies-from-browser', 'chrome',
-                '--no-cookies-from-browser',
                 // Rate limiting and delays
                 '--sleep-interval', '2',
                 '--max-sleep-interval', '5',
@@ -718,10 +739,7 @@ try:
         # Additional bypass techniques
         "nocheckcertificate": True,
         "ignoreerrors": False,
-        "no_color": True,
-        # Cookie handling
-        "cookiesfrombrowser": ("chrome",),
-        "nocheckcertificate": True
+        "no_color": True
     }
     
     print(f"yt-dlp options (no OAuth, enhanced): {ydl_opts}")
@@ -929,6 +947,131 @@ except Exception as e:
             ytDlpProcess.on('error', (error) => {
                 console.error(`❌ Simple yt-dlp process error: ${error.message}`);
                 reject(new Error(`Simple yt-dlp process error: ${error.message}`));
+            });
+        });
+    }
+
+    async downloadWithAlternativeYtDlp(videoUrl, outputPath) {
+        return new Promise((resolve, reject) => {
+            const { spawn } = require('child_process');
+            
+            // Alternative yt-dlp download command with different approach
+            const ytDlpArgs = [
+                '--output', outputPath,
+                '--format', 'worst[ext=mp4]/worst',  // Try worst quality first
+                '--no-warnings',
+                '--user-agent', 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                '--add-header', 'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                '--add-header', 'Accept-Language: en-US,en;q=0.5',
+                '--add-header', 'Accept-Encoding: gzip, deflate',
+                '--add-header', 'Connection: keep-alive',
+                '--add-header', 'Upgrade-Insecure-Requests: 1',
+                // Different extraction approach
+                '--extractor-args', 'youtube:player_client=tv',
+                '--extractor-args', 'youtube:player_skip=webpage,configs,js',
+                '--extractor-args', 'youtube:player_params={"hl":"en","gl":"US","client":"tv"}',
+                // Alternative format selection
+                '--format-sort', 'res:240,fps:30,codec:h264',
+                // Rate limiting
+                '--sleep-interval', '5',
+                '--max-sleep-interval', '10',
+                '--retries', '10',
+                videoUrl
+            ];
+            
+            console.log(`🔧 Alternative yt-dlp command (TV client): yt-dlp ${ytDlpArgs.join(' ')}`);
+            console.log('📺 Using TV client and alternative format selection');
+            
+            // Try multiple yt-dlp paths
+            let ytDlpPath = null;
+            const possiblePaths = [
+                './yt-dlp',
+                'yt-dlp',
+                'python3 -m yt_dlp',
+                'python -m yt_dlp',
+                '~/.local/bin/yt-dlp'
+            ];
+            
+            for (const path of possiblePaths) {
+                try {
+                    if (path.includes('python')) {
+                        // For Python module paths, test differently
+                        const testProcess = spawn('python3', ['-c', 'import yt_dlp; print("OK")']);
+                        testProcess.on('close', (code) => {
+                            if (code === 0) {
+                                ytDlpPath = path;
+                                console.log(`✅ Found yt-dlp at: ${path}`);
+                            }
+                        });
+                    } else if (fs.existsSync(path)) {
+                        ytDlpPath = path;
+                        console.log(`✅ Found yt-dlp at: ${path}`);
+                        break;
+                    }
+                } catch (e) {
+                    console.log(`❌ Path not found: ${path}`);
+                }
+            }
+            
+            if (!ytDlpPath) {
+                // Fallback to python module
+                ytDlpPath = 'python3 -m yt_dlp';
+                console.log(`🔧 Using fallback yt-dlp path: ${ytDlpPath}`);
+            }
+            
+            // Split command for python module
+            const [command, ...args] = ytDlpPath.split(' ');
+            const finalArgs = [...args, ...ytDlpArgs];
+            
+            console.log(`🔧 Final command (alternative): ${command} ${finalArgs.join(' ')}`);
+            
+            const ytDlpProcess = spawn(command, finalArgs);
+            
+            let stdout = '';
+            let stderr = '';
+            
+            ytDlpProcess.stdout.on('data', (data) => {
+                stdout += data.toString();
+                console.log(`📤 Alternative yt-dlp stdout: ${data.toString()}`);
+            });
+            
+            ytDlpProcess.stderr.on('data', (data) => {
+                stderr += data.toString();
+                console.log(`📥 Alternative yt-dlp stderr: ${data.toString()}`);
+            });
+            
+            // Add timeout to prevent hanging
+            const timeout = setTimeout(() => {
+                ytDlpProcess.kill();
+                reject(new Error('Alternative yt-dlp process timed out after 240 seconds'));
+            }, 240000); // Longer timeout for alternative method
+            
+            ytDlpProcess.on('close', (code) => {
+                clearTimeout(timeout);
+                console.log(`🔚 Alternative yt-dlp process closed with code: ${code}`);
+                if (code === 0) {
+                    // Check if file was actually downloaded
+                    if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 0) {
+                        console.log(`✅ Alternative yt-dlp download successful: ${outputPath} (${fs.statSync(outputPath).size} bytes)`);
+                        resolve({
+                            success: true,
+                            filePath: outputPath,
+                            method: 'yt-dlp-alternative-tv',
+                            fileSize: fs.statSync(outputPath).size
+                        });
+                    } else {
+                        console.error(`❌ Alternative yt-dlp file not found or empty: ${outputPath}`);
+                        reject(new Error('Alternative yt-dlp download completed but file is empty or missing'));
+                    }
+                } else {
+                    console.error(`❌ Alternative yt-dlp failed with code ${code}: ${stderr}`);
+                    reject(new Error(`Alternative yt-dlp failed with code ${code}: ${stderr}`));
+                }
+            });
+            
+            ytDlpProcess.on('error', (error) => {
+                console.error(`❌ Alternative yt-dlp process error: ${error.message}`);
+                reject(new Error(`Alternative yt-dlp process error: ${error.message}`));
             });
         });
     }
