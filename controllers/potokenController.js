@@ -229,7 +229,15 @@ class PoTokenController {
                                         return await this.downloadWithBasicYtDlp(videoUrl, outputPath);
                                     } catch (basicError) {
                                         console.error(`❌ Basic yt-dlp also failed: ${basicError.message}`);
-                                        throw new Error(`All methods failed. OAuth: ${nodeError.message}, Python OAuth: ${pythonError.message}, Simple: ${simpleError.message}, Alternative: ${alternativeError.message}, Basic: ${basicError.message}`);
+                                        
+                                        // Try direct extraction as final fallback
+                                        console.log('🔄 Trying direct extraction without yt-dlp...');
+                                        try {
+                                            return await this.downloadWithDirectExtraction(videoUrl, outputPath);
+                                        } catch (directError) {
+                                            console.error(`❌ Direct extraction also failed: ${directError.message}`);
+                                            throw new Error(`All methods failed. OAuth: ${nodeError.message}, Python OAuth: ${pythonError.message}, Simple: ${simpleError.message}, Alternative: ${alternativeError.message}, Basic: ${basicError.message}, Direct: ${directError.message}`);
+                                        }
                                     }
                                 }
                             }
@@ -296,7 +304,15 @@ class PoTokenController {
                                     return await this.downloadWithBasicYtDlp(videoUrl, outputPath);
                                 } catch (basicError) {
                                     console.error(`❌ Basic yt-dlp also failed: ${basicError.message}`);
-                                    throw new Error(`All methods failed. Node: ${nodeError.message}, Python: ${pythonError.message}, Simple: ${simpleError.message}, Alternative: ${alternativeError.message}, Basic: ${basicError.message}`);
+                                    
+                                    // Try direct extraction as final fallback
+                                    console.log('🔄 Trying direct extraction without yt-dlp...');
+                                    try {
+                                        return await this.downloadWithDirectExtraction(videoUrl, outputPath);
+                                    } catch (directError) {
+                                        console.error(`❌ Direct extraction also failed: ${directError.message}`);
+                                        throw new Error(`All methods failed. Node: ${nodeError.message}, Python: ${pythonError.message}, Simple: ${simpleError.message}, Alternative: ${alternativeError.message}, Basic: ${basicError.message}, Direct: ${directError.message}`);
+                                    }
                                 }
                             }
                         }
@@ -1204,6 +1220,213 @@ except Exception as e:
             ytDlpProcess.on('error', (error) => {
                 console.error(`❌ Basic yt-dlp process error: ${error.message}`);
                 reject(new Error(`Basic yt-dlp process error: ${error.message}`));
+            });
+        });
+    }
+
+    async downloadWithDirectExtraction(videoUrl, outputPath) {
+        return new Promise(async (resolve, reject) => {
+            const { spawn } = require('child_process');
+            const fs = require('fs');
+            
+            console.log(`🔧 Direct extraction method: ${videoUrl} -> ${outputPath}`);
+            console.log('🔧 Using direct HTTP requests to extract video URLs');
+            
+            // Python script for direct video URL extraction without yt-dlp
+            const pythonScript = `
+import requests
+import re
+import json
+import sys
+import os
+from urllib.parse import urlparse, parse_qs
+
+def extract_video_id(url):
+    """Extract video ID from YouTube URL"""
+    patterns = [
+        r'(?:youtube\\.com/watch\\?v=|youtu\\.be/|youtube\\.com/embed/)([^&?/]+)',
+        r'youtube\\.com/watch\\?.*v=([^&]+)'
+    ]
+    
+    for pattern in patterns:
+        match = re.search(pattern, url)
+        if match:
+            return match.group(1)
+    return None
+
+def get_video_info(video_id):
+    """Get video info using YouTube's public API"""
+    try:
+        # Try to get video info from YouTube's public API
+        url = f"https://www.youtube.com/get_video_info?video_id={video_id}"
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Accept-Encoding': 'gzip, deflate',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1'
+        }
+        
+        response = requests.get(url, headers=headers, timeout=30)
+        if response.status_code == 200:
+            # Parse the response
+            data = parse_qs(response.text)
+            if 'player_response' in data:
+                player_response = json.loads(data['player_response'][0])
+                return player_response
+    except Exception as e:
+        print(f"Error getting video info: {e}")
+    
+    return None
+
+def extract_direct_urls(player_response):
+    """Extract direct video URLs from player response"""
+    urls = []
+    
+    try:
+        if 'streamingData' in player_response:
+            # Try progressive formats first
+            if 'formats' in player_response['streamingData']:
+                for fmt in player_response['streamingData']['formats']:
+                    if 'url' in fmt:
+                        urls.append({
+                            'url': fmt['url'],
+                            'quality': fmt.get('qualityLabel', 'unknown'),
+                            'type': 'progressive'
+                        })
+            
+            # Try adaptive formats
+            if 'adaptiveFormats' in player_response['streamingData']:
+                for fmt in player_response['streamingData']['adaptiveFormats']:
+                    if 'url' in fmt:
+                        urls.append({
+                            'url': fmt['url'],
+                            'quality': fmt.get('qualityLabel', 'unknown'),
+                            'type': 'adaptive'
+                        })
+        
+        # Also try videoDetails
+        if 'videoDetails' in player_response:
+            print(f"Video title: {player_response['videoDetails'].get('title', 'Unknown')}")
+            
+    except Exception as e:
+        print(f"Error extracting URLs: {e}")
+    
+    return urls
+
+def download_video(url, output_path):
+    """Download video using curl/wget"""
+    try:
+        # Try curl first
+        import subprocess
+        result = subprocess.run(['curl', '-L', '-o', output_path, url], 
+                              capture_output=True, text=True, timeout=300)
+        if result.returncode == 0 and os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+            return True
+    except:
+        pass
+    
+    try:
+        # Try wget as fallback
+        import subprocess
+        result = subprocess.run(['wget', '-O', output_path, url], 
+                              capture_output=True, text=True, timeout=300)
+        if result.returncode == 0 and os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+            return True
+    except:
+        pass
+    
+    return False
+
+# Main execution
+video_url = "${videoUrl}"
+output_path = "${outputPath}"
+video_id = extract_video_id(video_url)
+
+if not video_id:
+    print("ERROR: Could not extract video ID")
+    sys.exit(1)
+
+print(f"Extracted video ID: {video_id}")
+
+# Get video info
+player_response = get_video_info(video_id)
+if not player_response:
+    print("ERROR: Could not get video info")
+    sys.exit(1)
+
+# Extract direct URLs
+urls = extract_direct_urls(player_response)
+if not urls:
+    print("ERROR: Could not extract video URLs")
+    sys.exit(1)
+
+print(f"Found {len(urls)} direct video URLs")
+
+# Try to download with the first available URL
+for i, url_info in enumerate(urls):
+    print(f"Trying URL {i+1}/{len(urls)}: {url_info['quality']} ({url_info['type']})")
+    
+    if download_video(url_info['url'], output_path):
+        print(f"SUCCESS: Downloaded {os.path.getsize(output_path)} bytes")
+        sys.exit(0)
+    else:
+        print(f"Failed to download with URL {i+1}")
+
+print("ERROR: All direct URLs failed")
+sys.exit(1)
+`;
+            
+            console.log(`🔧 Direct extraction script: ${videoUrl} -> ${outputPath}`);
+            
+            const pythonProcess = spawn('python3', ['-c', pythonScript]);
+            
+            let stdout = '';
+            let stderr = '';
+            
+            pythonProcess.stdout.on('data', (data) => {
+                stdout += data.toString();
+                console.log(`📤 Direct extraction stdout: ${data.toString()}`);
+            });
+            
+            pythonProcess.stderr.on('data', (data) => {
+                stderr += data.toString();
+                console.log(`📥 Direct extraction stderr: ${data.toString()}`);
+            });
+            
+            // Add timeout to prevent hanging
+            const timeout = setTimeout(() => {
+                pythonProcess.kill();
+                reject(new Error('Direct extraction process timed out after 300 seconds'));
+            }, 300000);
+            
+            pythonProcess.on('close', (code) => {
+                clearTimeout(timeout);
+                console.log(`🔚 Direct extraction process closed with code: ${code}`);
+                if (code === 0) {
+                    // Check if file was actually downloaded
+                    if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 0) {
+                        console.log(`✅ Direct extraction successful: ${outputPath} (${fs.statSync(outputPath).size} bytes)`);
+                        resolve({
+                            success: true,
+                            filePath: outputPath,
+                            method: 'direct-extraction-http',
+                            fileSize: fs.statSync(outputPath).size
+                        });
+                    } else {
+                        console.error(`❌ Direct extraction file not found or empty: ${outputPath}`);
+                        reject(new Error('Direct extraction completed but file is empty or missing'));
+                    }
+                } else {
+                    console.error(`❌ Direct extraction failed with code ${code}: ${stderr}`);
+                    reject(new Error(`Direct extraction failed with code ${code}: ${stderr}`));
+                }
+            });
+            
+            pythonProcess.on('error', (error) => {
+                console.error(`❌ Direct extraction process error: ${error.message}`);
+                reject(new Error(`Direct extraction process error: ${error.message}`));
             });
         });
     }
