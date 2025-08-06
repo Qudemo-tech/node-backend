@@ -581,7 +581,23 @@ class AsyncJobQueue extends EventEmitter {
             'download restrictions',
             'private, password-protected',
             'special access requirements',
-            'Vimeo restriction error:'
+            'Vimeo restriction error:',
+            'Sign in to confirm you\'re not a bot',
+            'Unable to download API page: HTTP Error 401: Unauthorized',
+            'Failed to extract any player response',
+            'HTTP Error 410: Gone',
+            'All methods failed',
+            'PoToken video download failed',
+            'yt-dlp failed with code 1',
+            'ERROR: [youtube]',
+            'bot detection',
+            'access denied',
+            'restricted access',
+            'video unavailable',
+            'private video',
+            'deleted video',
+            'copyright strike',
+            'geographic restriction'
         ];
         
         const isNonRetryable = nonRetryableErrors.some(errType => 

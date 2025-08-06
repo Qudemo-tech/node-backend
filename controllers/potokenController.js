@@ -243,7 +243,24 @@ class PoTokenController {
                                                 return await this.downloadWithAlternativeSources(videoUrl, outputPath);
                                             } catch (alternativeSourcesError) {
                                                 console.error(`❌ Alternative sources also failed: ${alternativeSourcesError.message}`);
-                                                throw new Error(`All methods failed. OAuth: ${nodeError.message}, Python OAuth: ${pythonError.message}, Simple: ${simpleError.message}, Alternative: ${alternativeError.message}, Basic: ${basicError.message}, Direct: ${directError.message}, Alternative Sources: ${alternativeSourcesError.message}`);
+                                                
+                                                // Provide a more specific error message based on the failure type
+                                                let finalErrorMessage = '';
+                                                if (alternativeSourcesError.message.includes('Sign in to confirm you\'re not a bot')) {
+                                                    finalErrorMessage = 'Video blocked by YouTube bot detection - requires human verification';
+                                                } else if (alternativeSourcesError.message.includes('HTTP Error 401: Unauthorized')) {
+                                                    finalErrorMessage = 'Video requires authentication - OAuth token expired or invalid';
+                                                } else if (alternativeSourcesError.message.includes('Failed to extract any player response')) {
+                                                    finalErrorMessage = 'Video extraction failed - YouTube API changes detected';
+                                                } else if (alternativeSourcesError.message.includes('HTTP Error 410: Gone')) {
+                                                    finalErrorMessage = 'Video no longer available - may be deleted or private';
+                                                } else if (alternativeSourcesError.message.includes('All methods failed')) {
+                                                    finalErrorMessage = 'All download methods failed - video may be restricted or blocked';
+                                                } else {
+                                                    finalErrorMessage = `Video download failed: ${alternativeSourcesError.message}`;
+                                                }
+                                                
+                                                throw new Error(finalErrorMessage);
                                             }
                                         }
                                     }
@@ -326,7 +343,24 @@ class PoTokenController {
                                             return await this.downloadWithAlternativeSources(videoUrl, outputPath);
                                         } catch (alternativeSourcesError) {
                                             console.error(`❌ Alternative sources also failed: ${alternativeSourcesError.message}`);
-                                            throw new Error(`All methods failed. Node: ${nodeError.message}, Python: ${pythonError.message}, Simple: ${simpleError.message}, Alternative: ${alternativeError.message}, Basic: ${basicError.message}, Direct: ${directError.message}, Alternative Sources: ${alternativeSourcesError.message}`);
+                                            
+                                            // Provide a more specific error message based on the failure type
+                                            let finalErrorMessage = '';
+                                            if (alternativeSourcesError.message.includes('Sign in to confirm you\'re not a bot')) {
+                                                finalErrorMessage = 'Video blocked by YouTube bot detection - requires human verification';
+                                            } else if (alternativeSourcesError.message.includes('HTTP Error 401: Unauthorized')) {
+                                                finalErrorMessage = 'Video requires authentication - OAuth token expired or invalid';
+                                            } else if (alternativeSourcesError.message.includes('Failed to extract any player response')) {
+                                                finalErrorMessage = 'Video extraction failed - YouTube API changes detected';
+                                            } else if (alternativeSourcesError.message.includes('HTTP Error 410: Gone')) {
+                                                finalErrorMessage = 'Video no longer available - may be deleted or private';
+                                            } else if (alternativeSourcesError.message.includes('All methods failed')) {
+                                                finalErrorMessage = 'All download methods failed - video may be restricted or blocked';
+                                            } else {
+                                                finalErrorMessage = `Video download failed: ${alternativeSourcesError.message}`;
+                                            }
+                                            
+                                            throw new Error(finalErrorMessage);
                                         }
                                     }
                                 }
