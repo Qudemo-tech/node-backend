@@ -1948,70 +1948,79 @@ sys.exit(1)
         try {
             console.log(`🌐 Using GCP VM for download: ${videoUrl}`);
             
-            // Get VM configuration from environment variables or use defaults
-            const vmName = process.env.GCP_VM_NAME || 'youtube-downloader-vm';
-            const vmZone = process.env.GCP_VM_ZONE || 'us-central1-a';
-            const vmUser = process.env.GCP_VM_USER || 'abhis';
-            
-            // Extract filename from outputPath
-            const path = require('path');
-            const fileName = path.basename(outputPath);
-            const vmFileName = `vm_${Date.now()}_${fileName}`;
-            
-            // Step 1: Download to VM
-            console.log(`📥 Step 1: Downloading to VM as ${vmFileName}...`);
-            const downloadCommand = `gcloud compute ssh ${vmUser}@${vmName} --zone=${vmZone} --command="cd ~/youtube-downloader && /home/abhis/.local/bin/yt-dlp --output ${vmFileName} ${videoUrl}"`;
-            
+            // Check if gcloud is available first
             return new Promise((resolve, reject) => {
-                exec(downloadCommand, { timeout: 300000 }, (downloadError, downloadStdout, downloadStderr) => {
-                    if (downloadError) {
-                        console.error(`❌ VM download failed: ${downloadError.message}`);
-                        console.error(`📥 VM stderr: ${downloadStderr}`);
-                        reject(new Error(`VM download failed: ${downloadError.message}`));
+                exec('which gcloud', { timeout: 5000 }, (gcloudError) => {
+                    if (gcloudError) {
+                        console.log(`⚠️ gcloud not available on this system, cannot use VM approach`);
+                        reject(new Error('gcloud not available on this system'));
                         return;
                     }
                     
-                    console.log(`✅ VM download successful: ${vmFileName}`);
-                    console.log(`📤 VM stdout: ${downloadStdout}`);
+                    // Get VM configuration from environment variables or use defaults
+                    const vmName = process.env.GCP_VM_NAME || 'youtube-downloader-vm';
+                    const vmZone = process.env.GCP_VM_ZONE || 'us-central1-a';
+                    const vmUser = process.env.GCP_VM_USER || 'abhis';
                     
-                    // Step 2: Copy file from VM to local
-                    console.log(`📋 Step 2: Copying file from VM to local...`);
-                    const copyCommand = `gcloud compute scp ${vmUser}@${vmName}:/home/abhis/youtube-downloader/${vmFileName} ${outputPath} --zone=${vmZone}`;
+                    // Extract filename from outputPath
+                    const path = require('path');
+                    const fileName = path.basename(outputPath);
+                    const vmFileName = `vm_${Date.now()}_${fileName}`;
                     
-                    exec(copyCommand, { timeout: 60000 }, (copyError, copyStdout, copyStderr) => {
-                        if (copyError) {
-                            console.error(`❌ File copy failed: ${copyError.message}`);
-                            console.error(`📥 Copy stderr: ${copyStderr}`);
-                            reject(new Error(`File copy failed: ${copyError.message}`));
+                    // Step 1: Download to VM
+                    console.log(`📥 Step 1: Downloading to VM as ${vmFileName}...`);
+                    const downloadCommand = `gcloud compute ssh ${vmUser}@${vmName} --zone=${vmZone} --command="cd ~/youtube-downloader && /home/abhis/.local/bin/yt-dlp --output ${vmFileName} ${videoUrl}"`;
+                    
+                    exec(downloadCommand, { timeout: 300000 }, (downloadError, downloadStdout, downloadStderr) => {
+                        if (downloadError) {
+                            console.error(`❌ VM download failed: ${downloadError.message}`);
+                            console.error(`📥 VM stderr: ${downloadStderr}`);
+                            reject(new Error(`VM download failed: ${downloadError.message}`));
                             return;
                         }
                         
-                        console.log(`✅ File copy successful: ${outputPath}`);
-                        console.log(`📤 Copy stdout: ${copyStdout}`);
+                        console.log(`✅ VM download successful: ${vmFileName}`);
+                        console.log(`📤 VM stdout: ${downloadStdout}`);
                         
-                        // Step 3: Clean up file on VM
-                        console.log(`🧹 Step 3: Cleaning up file on VM...`);
-                        const cleanupCommand = `gcloud compute ssh ${vmUser}@${vmName} --zone=${vmZone} --command="cd ~/youtube-downloader && rm -f ${vmFileName}"`;
+                        // Step 2: Copy file from VM to local
+                        console.log(`📋 Step 2: Copying file from VM to local...`);
+                        const copyCommand = `gcloud compute scp ${vmUser}@${vmName}:/home/abhis/youtube-downloader/${vmFileName} ${outputPath} --zone=${vmZone}`;
                         
-                        exec(cleanupCommand, { timeout: 30000 }, (cleanupError) => {
-                            if (cleanupError) {
-                                console.warn(`⚠️ Cleanup failed: ${cleanupError.message}`);
-                            } else {
-                                console.log(`✅ Cleanup successful`);
+                        exec(copyCommand, { timeout: 60000 }, (copyError, copyStdout, copyStderr) => {
+                            if (copyError) {
+                                console.error(`❌ File copy failed: ${copyError.message}`);
+                                console.error(`📥 Copy stderr: ${copyStderr}`);
+                                reject(new Error(`File copy failed: ${copyError.message}`));
+                                return;
                             }
                             
-                            // Check if file was actually copied
-                            if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 0) {
-                                resolve({
-                                    success: true,
-                                    filePath: outputPath,
-                                    method: 'gcp-vm',
-                                    fileSize: fs.statSync(outputPath).size
-                                });
-                            } else {
-                                console.error(`❌ File copy completed but file not found: ${outputPath}`);
-                                reject(new Error('File copy completed but file is missing or empty'));
-                            }
+                            console.log(`✅ File copy successful: ${outputPath}`);
+                            console.log(`📤 Copy stdout: ${copyStdout}`);
+                            
+                            // Step 3: Clean up file on VM
+                            console.log(`🧹 Step 3: Cleaning up file on VM...`);
+                            const cleanupCommand = `gcloud compute ssh ${vmUser}@${vmName} --zone=${vmZone} --command="cd ~/youtube-downloader && rm -f ${vmFileName}"`;
+                            
+                            exec(cleanupCommand, { timeout: 30000 }, (cleanupError) => {
+                                if (cleanupError) {
+                                    console.warn(`⚠️ Cleanup failed: ${cleanupError.message}`);
+                                } else {
+                                    console.log(`✅ Cleanup successful`);
+                                }
+                                
+                                // Check if file was actually copied
+                                if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 0) {
+                                    resolve({
+                                        success: true,
+                                        filePath: outputPath,
+                                        method: 'gcp-vm',
+                                        fileSize: fs.statSync(outputPath).size
+                                    });
+                                } else {
+                                    console.error(`❌ File copy completed but file not found: ${outputPath}`);
+                                    reject(new Error('File copy completed but file is missing or empty'));
+                                }
+                            });
                         });
                     });
                 });
@@ -2027,26 +2036,56 @@ sys.exit(1)
      */
     async checkVMHealth() {
         try {
-            const vmName = process.env.GCP_VM_NAME || 'youtube-downloader-vm';
-            const vmZone = process.env.GCP_VM_ZONE || 'us-central1-a';
-            const vmUser = process.env.GCP_VM_USER || 'abhis';
-            
-            const healthCheck = `gcloud compute ssh ${vmUser}@${vmName} --zone=${vmZone} --command="yt-dlp --version"`;
-            
+            // Check if gcloud is available first
             return new Promise((resolve) => {
-                exec(healthCheck, { timeout: 30000 }, (error) => {
-                    if (error) {
-                        console.error(`❌ VM health check failed: ${error.message}`);
-                        resolve(false);
-                    } else {
-                        console.log(`✅ VM health check passed`);
-                        resolve(true);
+                exec('which gcloud', { timeout: 5000 }, (gcloudError) => {
+                    if (gcloudError) {
+                        console.log(`⚠️ gcloud not available on this system, skipping VM health check`);
+                        resolve({
+                            success: true,
+                            vmHealthy: false,
+                            timestamp: new Date().toISOString(),
+                            message: 'gcloud not available on this system'
+                        });
+                        return;
                     }
+                    
+                    // If gcloud is available, check VM health
+                    const vmName = process.env.GCP_VM_NAME || 'youtube-downloader-vm';
+                    const vmZone = process.env.GCP_VM_ZONE || 'us-central1-a';
+                    const vmUser = process.env.GCP_VM_USER || 'abhis';
+                    
+                    const healthCheck = `gcloud compute ssh ${vmUser}@${vmName} --zone=${vmZone} --command="yt-dlp --version"`;
+                    
+                    exec(healthCheck, { timeout: 30000 }, (error) => {
+                        if (error) {
+                            console.error(`❌ VM health check failed: ${error.message}`);
+                            resolve({
+                                success: true,
+                                vmHealthy: false,
+                                timestamp: new Date().toISOString(),
+                                message: 'VM health check failed'
+                            });
+                        } else {
+                            console.log(`✅ VM health check passed`);
+                            resolve({
+                                success: true,
+                                vmHealthy: true,
+                                timestamp: new Date().toISOString(),
+                                message: 'VM is healthy'
+                            });
+                        }
+                    });
                 });
             });
         } catch (error) {
             console.error(`❌ VM health check error: ${error.message}`);
-            return false;
+            return {
+                success: false,
+                vmHealthy: false,
+                timestamp: new Date().toISOString(),
+                message: error.message
+            };
         }
     }
 }

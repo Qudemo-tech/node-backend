@@ -4,7 +4,7 @@ services:
     name: qudemo-node-backend
     env: node
     plan: starter
-    buildCommand: npm install && apt-get update && apt-get install -y yt-dlp
+    buildCommand: npm install && apt-get update && apt-get install -y yt-dlp && chmod +x /usr/bin/yt-dlp
     startCommand: npm start
     envVars:
       - key: NODE_ENV
@@ -22,6 +22,14 @@ services:
       - key: OPENAI_API_KEY
         sync: false
       - key: YOUTUBE_OAUTH_TOKEN
+        sync: false
+      - key: GCP_PROJECT_ID
+        sync: false
+      - key: GCP_VM_NAME
+        sync: false
+      - key: GCP_VM_ZONE
+        sync: false
+      - key: GCP_VM_USER
         sync: false
     healthCheckPath: /health
     autoDeploy: true
