@@ -244,20 +244,49 @@ class PoTokenController {
                                             } catch (alternativeSourcesError) {
                                                 console.error(`❌ Alternative sources also failed: ${alternativeSourcesError.message}`);
                                                 
+                                                // Extract the actual error from the alternative sources failure
+                                                let actualError = alternativeSourcesError.message;
+                                                if (actualError.includes('Alternative sources failed with code 1')) {
+                                                    // Look for the actual error in the logs
+                                                    if (actualError.includes('Sign in to confirm you\'re not a bot')) {
+                                                        actualError = 'Sign in to confirm you\'re not a bot';
+                                                    } else if (actualError.includes('HTTP Error 401: Unauthorized')) {
+                                                        actualError = 'HTTP Error 401: Unauthorized';
+                                                    } else if (actualError.includes('Failed to extract any player response')) {
+                                                        actualError = 'Failed to extract any player response';
+                                                    } else if (actualError.includes('HTTP Error 410: Gone')) {
+                                                        actualError = 'HTTP Error 410: Gone';
+                                                    } else if (actualError.includes('HTTP Error 403: Forbidden')) {
+                                                        actualError = 'HTTP Error 403: Forbidden';
+                                                    } else if (actualError.includes('HTTP Error 502: Bad Gateway')) {
+                                                        actualError = 'HTTP Error 502: Bad Gateway';
+                                                    } else if (actualError.includes('codec can\'t decode')) {
+                                                        actualError = 'Video encoding error';
+                                                    } else {
+                                                        actualError = 'All alternative sources failed';
+                                                    }
+                                                }
+                                                
                                                 // Provide a more specific error message based on the failure type
                                                 let finalErrorMessage = '';
-                                                if (alternativeSourcesError.message.includes('Sign in to confirm you\'re not a bot')) {
+                                                if (actualError.includes('Sign in to confirm you\'re not a bot')) {
                                                     finalErrorMessage = 'Video blocked by YouTube bot detection - requires human verification';
-                                                } else if (alternativeSourcesError.message.includes('HTTP Error 401: Unauthorized')) {
+                                                } else if (actualError.includes('HTTP Error 401: Unauthorized')) {
                                                     finalErrorMessage = 'Video requires authentication - OAuth token expired or invalid';
-                                                } else if (alternativeSourcesError.message.includes('Failed to extract any player response')) {
+                                                } else if (actualError.includes('Failed to extract any player response')) {
                                                     finalErrorMessage = 'Video extraction failed - YouTube API changes detected';
-                                                } else if (alternativeSourcesError.message.includes('HTTP Error 410: Gone')) {
+                                                } else if (actualError.includes('HTTP Error 410: Gone')) {
                                                     finalErrorMessage = 'Video no longer available - may be deleted or private';
-                                                } else if (alternativeSourcesError.message.includes('All methods failed')) {
+                                                } else if (actualError.includes('HTTP Error 403: Forbidden')) {
+                                                    finalErrorMessage = 'Video access forbidden - may be restricted or private';
+                                                } else if (actualError.includes('HTTP Error 502: Bad Gateway')) {
+                                                    finalErrorMessage = 'Video service temporarily unavailable';
+                                                } else if (actualError.includes('Video encoding error')) {
+                                                    finalErrorMessage = 'Video encoding error - video may be corrupted';
+                                                } else if (actualError.includes('All alternative sources failed')) {
                                                     finalErrorMessage = 'All download methods failed - video may be restricted or blocked';
                                                 } else {
-                                                    finalErrorMessage = `Video download failed: ${alternativeSourcesError.message}`;
+                                                    finalErrorMessage = `Video download failed: ${actualError}`;
                                                 }
                                                 
                                                 throw new Error(finalErrorMessage);
@@ -344,20 +373,49 @@ class PoTokenController {
                                         } catch (alternativeSourcesError) {
                                             console.error(`❌ Alternative sources also failed: ${alternativeSourcesError.message}`);
                                             
+                                            // Extract the actual error from the alternative sources failure
+                                            let actualError = alternativeSourcesError.message;
+                                            if (actualError.includes('Alternative sources failed with code 1')) {
+                                                // Look for the actual error in the logs
+                                                if (actualError.includes('Sign in to confirm you\'re not a bot')) {
+                                                    actualError = 'Sign in to confirm you\'re not a bot';
+                                                } else if (actualError.includes('HTTP Error 401: Unauthorized')) {
+                                                    actualError = 'HTTP Error 401: Unauthorized';
+                                                } else if (actualError.includes('Failed to extract any player response')) {
+                                                    actualError = 'Failed to extract any player response';
+                                                } else if (actualError.includes('HTTP Error 410: Gone')) {
+                                                    actualError = 'HTTP Error 410: Gone';
+                                                } else if (actualError.includes('HTTP Error 403: Forbidden')) {
+                                                    actualError = 'HTTP Error 403: Forbidden';
+                                                } else if (actualError.includes('HTTP Error 502: Bad Gateway')) {
+                                                    actualError = 'HTTP Error 502: Bad Gateway';
+                                                } else if (actualError.includes('codec can\'t decode')) {
+                                                    actualError = 'Video encoding error';
+                                                } else {
+                                                    actualError = 'All alternative sources failed';
+                                                }
+                                            }
+                                            
                                             // Provide a more specific error message based on the failure type
                                             let finalErrorMessage = '';
-                                            if (alternativeSourcesError.message.includes('Sign in to confirm you\'re not a bot')) {
+                                            if (actualError.includes('Sign in to confirm you\'re not a bot')) {
                                                 finalErrorMessage = 'Video blocked by YouTube bot detection - requires human verification';
-                                            } else if (alternativeSourcesError.message.includes('HTTP Error 401: Unauthorized')) {
+                                            } else if (actualError.includes('HTTP Error 401: Unauthorized')) {
                                                 finalErrorMessage = 'Video requires authentication - OAuth token expired or invalid';
-                                            } else if (alternativeSourcesError.message.includes('Failed to extract any player response')) {
+                                            } else if (actualError.includes('Failed to extract any player response')) {
                                                 finalErrorMessage = 'Video extraction failed - YouTube API changes detected';
-                                            } else if (alternativeSourcesError.message.includes('HTTP Error 410: Gone')) {
+                                            } else if (actualError.includes('HTTP Error 410: Gone')) {
                                                 finalErrorMessage = 'Video no longer available - may be deleted or private';
-                                            } else if (alternativeSourcesError.message.includes('All methods failed')) {
+                                            } else if (actualError.includes('HTTP Error 403: Forbidden')) {
+                                                finalErrorMessage = 'Video access forbidden - may be restricted or private';
+                                            } else if (actualError.includes('HTTP Error 502: Bad Gateway')) {
+                                                finalErrorMessage = 'Video service temporarily unavailable';
+                                            } else if (actualError.includes('Video encoding error')) {
+                                                finalErrorMessage = 'Video encoding error - video may be corrupted';
+                                            } else if (actualError.includes('All alternative sources failed')) {
                                                 finalErrorMessage = 'All download methods failed - video may be restricted or blocked';
                                             } else {
-                                                finalErrorMessage = `Video download failed: ${alternativeSourcesError.message}`;
+                                                finalErrorMessage = `Video download failed: ${actualError}`;
                                             }
                                             
                                             throw new Error(finalErrorMessage);
