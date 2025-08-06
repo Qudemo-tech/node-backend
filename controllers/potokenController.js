@@ -1,5 +1,5 @@
 const axios = require('axios');
-const { spawn } = require('child_process');
+const { spawn, exec } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 
@@ -12,8 +12,18 @@ class PoTokenController {
     async checkYtDlpAvailability() {
         try {
             const { exec } = require('child_process');
+            const os = require('os');
+            const platform = os.platform();
             
-            // First, try to install yt-dlp if it doesn't exist
+            // Check if we're on Windows
+            if (platform === 'win32') {
+                console.log('🪟 Windows detected - skipping local yt-dlp installation');
+                console.log('🌐 Will use GCP VM for all YouTube downloads');
+                this.isYtDlpAvailable = false; // Force VM usage on Windows
+                return;
+            }
+            
+            // For Linux/Mac, try to install yt-dlp if it doesn't exist
             exec('which yt-dlp', (error, stdout) => {
                 if (error || !stdout.trim()) {
                     console.log('⚠️ yt-dlp not found, installing...');
@@ -76,6 +86,23 @@ class PoTokenController {
     }
 
     async generatePoToken(videoUrl) {
+        const os = require('os');
+        const platform = os.platform();
+        
+        // On Windows, always use VM approach
+        if (platform === 'win32') {
+            console.log(`🪟 Windows detected - using GCP VM for video processing: ${videoUrl}`);
+            try {
+                // Use VM approach for video info extraction
+                const result = await this.runYtDlpWithEnhancedHeaders(videoUrl);
+                return result;
+            } catch (error) {
+                console.error('❌ VM video processing failed:', error);
+                throw error;
+            }
+        }
+        
+        // On Linux/Mac, check yt-dlp availability
         if (!this.isYtDlpAvailable) {
             throw new Error('yt-dlp not available for video processing');
         }
@@ -103,10 +130,66 @@ class PoTokenController {
     }
 
     async runYtDlpWithEnhancedHeaders(videoUrl) {
+        const os = require('os');
+        const platform = os.platform();
+        
+        // On Windows, use VM for video info extraction
+        if (platform === 'win32') {
+            console.log(`🪟 Windows detected - using VM for video info extraction: ${videoUrl}`);
+            try {
+                const { exec } = require('child_process');
+                
+                // Get VM configuration
+                const vmName = process.env.GCP_VM_NAME || 'youtube-downloader-vm';
+                const vmZone = process.env.GCP_VM_ZONE || 'us-central1-a';
+                const vmUser = process.env.GCP_VM_USER || 'abhis';
+                
+                // Run yt-dlp on VM to get video info
+                const command = `gcloud compute ssh ${vmUser}@${vmName} --zone=${vmZone} --command="cd ~/youtube-downloader && /home/abhis/.local/bin/yt-dlp --dump-json --no-warnings ${videoUrl}"`;
+                
+                return new Promise((resolve, reject) => {
+                    exec(command, { timeout: 60000 }, (error, stdout, stderr) => {
+                        if (error) {
+                            reject(new Error(`VM yt-dlp failed: ${error.message}`));
+                            return;
+                        }
+                        
+                        if (stdout) {
+                            try {
+                                const videoData = JSON.parse(stdout);
+                                
+                                const result = {
+                                    success: true,
+                                    videoInfo: {
+                                        title: videoData.title,
+                                        duration: videoData.duration,
+                                        uploader: videoData.uploader,
+                                        view_count: videoData.view_count,
+                                        description: videoData.description ? videoData.description.substring(0, 200) + '...' : ''
+                                    },
+                                    downloadUrl: videoData.url || videoData.webpage_url,
+                                    formats: videoData.formats ? videoData.formats.length : 0
+                                };
+                                
+                                resolve(result);
+                            } catch (parseError) {
+                                reject(new Error(`Failed to parse VM yt-dlp output: ${parseError.message}`));
+                            }
+                        } else {
+                            reject(new Error(`VM yt-dlp returned no output: ${stderr}`));
+                        }
+                    });
+                });
+            } catch (error) {
+                throw new Error(`VM video info extraction failed: ${error.message}`);
+            }
+        }
+        
+        // On Linux/Mac, use local yt-dlp
         return new Promise((resolve, reject) => {
             const { spawn } = require('child_process');
             
-            // Enhanced yt-dlp command with anti-bot headers (same as download method)
+            // Enhanced yt-dlp command with anti-bot headers
             const ytDlpArgs = [
                 '--dump-json',
                 '--no-warnings',
@@ -173,7 +256,8 @@ class PoTokenController {
 
     async getVideoInfoWithPoToken(videoUrl) {
         try {
-            const result = await this.generatePoToken(videoUrl);
+            // Direct video info extraction without calling generatePoToken
+            const result = await this.runYtDlpWithEnhancedHeaders(videoUrl);
             return {
                 success: true,
                 data: result
@@ -196,7 +280,7 @@ class PoTokenController {
         });
 
         try {
-            console.log(`📥 Downloading with yt-dlp: ${videoUrl}`);
+            console.log(`📥 Starting download with VM-first approach: ${videoUrl}`);
             
             // Race between the download and timeout
             return await Promise.race([
@@ -211,15 +295,31 @@ class PoTokenController {
 
     async _downloadWithPoTokenInternal(videoUrl, outputPath) {
         try {
-            console.log(`📥 Downloading with yt-dlp: ${videoUrl}`);
+            console.log(`📥 Starting VM-first download chain: ${videoUrl}`);
             
+            // First try with GCP VM (primary method)
+            console.log('🌐 Attempting download with GCP VM...');
+            try {
+                const vmHealth = await this.checkVMHealth();
+                if (vmHealth) {
+                    const result = await this.downloadWithGCPVM(videoUrl, outputPath);
+                    return result;
+                } else {
+                    console.log('⚠️ VM health check failed, falling back to local methods...');
+                }
+            } catch (vmError) {
+                console.error(`❌ GCP VM download failed: ${vmError.message}`);
+                console.log('🔄 Falling back to local methods...');
+            }
+            
+            // Fallback to local methods if VM fails
             // First try with OAuth token (if available)
             if (process.env.YOUTUBE_OAUTH_TOKEN) {
                 console.log('🔐 Attempting download with OAuth token...');
                 try {
                     const result = await this.downloadWithNodeYtDlp(videoUrl, outputPath);
                     return result;
-                } catch (nodeError) {
+            } catch (nodeError) {
                     console.error(`❌ Node.js yt-dlp with OAuth failed: ${nodeError.message}`);
                     
                     // Check if it's a 401 error (OAuth token expired/invalid)
@@ -322,9 +422,9 @@ class PoTokenController {
                     } else {
                         // Non-OAuth related error, try Python fallback with OAuth
                         console.log('🔄 Trying Python yt-dlp fallback with OAuth...');
-                        try {
-                            return await this.downloadWithPythonYtDlp(videoUrl, outputPath);
-                        } catch (pythonError) {
+                try {
+                    return await this.downloadWithPythonYtDlp(videoUrl, outputPath);
+                } catch (pythonError) {
                             console.error(`❌ Python yt-dlp with OAuth also failed: ${pythonError.message}`);
                             
                             // Try simple yt-dlp as final fallback
@@ -1838,6 +1938,116 @@ sys.exit(1)
                 reject(new Error(`Alternative sources process error: ${error.message}`));
             });
         });
+    }
+
+    /**
+     * Download video using Google Cloud VM approach
+     * This method bypasses bot detection by using a clean VM environment
+     */
+    async downloadWithGCPVM(videoUrl, outputPath) {
+        try {
+            console.log(`🌐 Using GCP VM for download: ${videoUrl}`);
+            
+            // Get VM configuration from environment variables or use defaults
+            const vmName = process.env.GCP_VM_NAME || 'youtube-downloader-vm';
+            const vmZone = process.env.GCP_VM_ZONE || 'us-central1-a';
+            const vmUser = process.env.GCP_VM_USER || 'abhis';
+            
+            // Extract filename from outputPath
+            const path = require('path');
+            const fileName = path.basename(outputPath);
+            const vmFileName = `vm_${Date.now()}_${fileName}`;
+            
+            // Step 1: Download to VM
+            console.log(`📥 Step 1: Downloading to VM as ${vmFileName}...`);
+            const downloadCommand = `gcloud compute ssh ${vmUser}@${vmName} --zone=${vmZone} --command="cd ~/youtube-downloader && /home/abhis/.local/bin/yt-dlp --output ${vmFileName} ${videoUrl}"`;
+            
+            return new Promise((resolve, reject) => {
+                exec(downloadCommand, { timeout: 300000 }, (downloadError, downloadStdout, downloadStderr) => {
+                    if (downloadError) {
+                        console.error(`❌ VM download failed: ${downloadError.message}`);
+                        console.error(`📥 VM stderr: ${downloadStderr}`);
+                        reject(new Error(`VM download failed: ${downloadError.message}`));
+                        return;
+                    }
+                    
+                    console.log(`✅ VM download successful: ${vmFileName}`);
+                    console.log(`📤 VM stdout: ${downloadStdout}`);
+                    
+                    // Step 2: Copy file from VM to local
+                    console.log(`📋 Step 2: Copying file from VM to local...`);
+                    const copyCommand = `gcloud compute scp ${vmUser}@${vmName}:/home/abhis/youtube-downloader/${vmFileName} ${outputPath} --zone=${vmZone}`;
+                    
+                    exec(copyCommand, { timeout: 60000 }, (copyError, copyStdout, copyStderr) => {
+                        if (copyError) {
+                            console.error(`❌ File copy failed: ${copyError.message}`);
+                            console.error(`📥 Copy stderr: ${copyStderr}`);
+                            reject(new Error(`File copy failed: ${copyError.message}`));
+                            return;
+                        }
+                        
+                        console.log(`✅ File copy successful: ${outputPath}`);
+                        console.log(`📤 Copy stdout: ${copyStdout}`);
+                        
+                        // Step 3: Clean up file on VM
+                        console.log(`🧹 Step 3: Cleaning up file on VM...`);
+                        const cleanupCommand = `gcloud compute ssh ${vmUser}@${vmName} --zone=${vmZone} --command="cd ~/youtube-downloader && rm -f ${vmFileName}"`;
+                        
+                        exec(cleanupCommand, { timeout: 30000 }, (cleanupError) => {
+                            if (cleanupError) {
+                                console.warn(`⚠️ Cleanup failed: ${cleanupError.message}`);
+                            } else {
+                                console.log(`✅ Cleanup successful`);
+                            }
+                            
+                            // Check if file was actually copied
+                            if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 0) {
+                                resolve({
+                                    success: true,
+                                    filePath: outputPath,
+                                    method: 'gcp-vm',
+                                    fileSize: fs.statSync(outputPath).size
+                                });
+                            } else {
+                                console.error(`❌ File copy completed but file not found: ${outputPath}`);
+                                reject(new Error('File copy completed but file is missing or empty'));
+                            }
+                        });
+                    });
+                });
+            });
+        } catch (error) {
+            console.error(`❌ VM download error: ${error.message}`);
+            throw error;
+        }
+    }
+
+    /**
+     * Check VM health and availability
+     */
+    async checkVMHealth() {
+        try {
+            const vmName = process.env.GCP_VM_NAME || 'youtube-downloader-vm';
+            const vmZone = process.env.GCP_VM_ZONE || 'us-central1-a';
+            const vmUser = process.env.GCP_VM_USER || 'abhis';
+            
+            const healthCheck = `gcloud compute ssh ${vmUser}@${vmName} --zone=${vmZone} --command="yt-dlp --version"`;
+            
+            return new Promise((resolve) => {
+                exec(healthCheck, { timeout: 30000 }, (error) => {
+                    if (error) {
+                        console.error(`❌ VM health check failed: ${error.message}`);
+                        resolve(false);
+                    } else {
+                        console.log(`✅ VM health check passed`);
+                        resolve(true);
+                    }
+                });
+            });
+        } catch (error) {
+            console.error(`❌ VM health check error: ${error.message}`);
+            return false;
+        }
     }
 }
 

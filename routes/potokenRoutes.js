@@ -12,6 +12,68 @@ router.get('/health', (req, res) => {
     });
 });
 
+// VM health check endpoint
+router.get('/vm-health', async (req, res) => {
+    try {
+        console.log('🔍 VM health check requested');
+        const vmHealth = await potokenController.checkVMHealth();
+        
+        res.json({
+            success: true,
+            vmHealthy: vmHealth,
+            timestamp: new Date().toISOString(),
+            message: vmHealth ? 'VM is healthy and ready' : 'VM health check failed'
+        });
+    } catch (error) {
+        console.error('❌ VM health check error:', error);
+        res.status(500).json({
+            success: false,
+            vmHealthy: false,
+            error: error.message
+        });
+    }
+});
+
+// Test VM download endpoint
+router.post('/test-vm-download', async (req, res) => {
+    try {
+        const { videoUrl } = req.body;
+        
+        if (!videoUrl) {
+            return res.status(400).json({
+                success: false,
+                error: 'videoUrl is required'
+            });
+        }
+
+        console.log(`🧪 VM download test requested for: ${videoUrl}`);
+        
+        // Generate a unique output path
+        const path = require('path');
+        const outputPath = path.join(__dirname, '..', '..', '..', 'test_vm_download_' + Date.now() + '.mp4');
+        
+        const startTime = Date.now();
+        const result = await potokenController.downloadWithGCPVM(videoUrl, outputPath);
+        const endTime = Date.now();
+        
+        res.json({
+            success: true,
+            data: {
+                ...result,
+                duration: (endTime - startTime) / 1000,
+                timestamp: new Date().toISOString()
+            }
+        });
+        
+    } catch (error) {
+        console.error('❌ VM download test error:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
 // Generate PoToken for a video URL
 router.post('/generate', async (req, res) => {
     try {
@@ -34,12 +96,10 @@ router.post('/generate', async (req, res) => {
 
         console.log(`🔐 PoToken generation requested for: ${videoUrl}`);
         
-        const result = await potokenController.generatePoToken(videoUrl);
+        // Use direct video info extraction to avoid recursion
+        const result = await potokenController.getVideoInfoWithPoToken(videoUrl);
         
-        res.json({
-            success: true,
-            data: result
-        });
+        res.json(result);
         
     } catch (error) {
         console.error('❌ PoToken generation error:', error);
