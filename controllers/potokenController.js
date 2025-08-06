@@ -460,14 +460,16 @@ class PoTokenController {
         return new Promise((resolve, reject) => {
             const { spawn } = require('child_process');
             
-            // Enhanced yt-dlp download command with OAuth 2.0 and bot detection bypass
+            // Enhanced yt-dlp download command with OAuth 2.0 and advanced bot detection bypass
             const ytDlpArgs = [
                 '--output', outputPath,
                 '--format', 'best[ext=mp4]/best',
                 '--no-warnings',
                 '--no-check-certificate',
-                '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-                '--add-header', 'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+                // Advanced user agent rotation
+                '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                // Enhanced headers for bot detection bypass
+                '--add-header', 'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
                 '--add-header', 'Accept-Language: en-US,en;q=0.9',
                 '--add-header', 'Accept-Encoding: gzip, deflate, br',
                 '--add-header', 'DNT: 1',
@@ -476,21 +478,50 @@ class PoTokenController {
                 '--add-header', 'Sec-Fetch-Dest: document',
                 '--add-header', 'Sec-Fetch-Mode: navigate',
                 '--add-header', 'Sec-Fetch-Site: none',
+                '--add-header', 'Sec-Fetch-User: ?1',
                 '--add-header', 'Cache-Control: max-age=0',
+                '--add-header', 'Sec-Ch-Ua: "Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+                '--add-header', 'Sec-Ch-Ua-Mobile: ?0',
+                '--add-header', 'Sec-Ch-Ua-Platform: "Windows"',
+                '--add-header', 'Sec-Ch-Ua-Platform-Version: "15.0.0"',
+                '--add-header', 'Sec-Ch-Ua-Model: ""',
+                '--add-header', 'Sec-Ch-Ua-Bitness: "64"',
+                '--add-header', 'Sec-Ch-Ua-WoW64: ?0',
+                '--add-header', 'Sec-Ch-Ua-Full-Version: "120.0.6099.109"',
+                '--add-header', 'Sec-Ch-Ua-Full-Version-List: "Not_A Brand";v="8.0.0.0", "Chromium";v="120.0.6099.109", "Google Chrome";v="120.0.6099.109"',
+                '--add-header', 'Sec-Ch-Ua-Arch: "x86"',
                 // OAuth 2.0 authentication via headers (if available)
                 ...(process.env.YOUTUBE_OAUTH_TOKEN ? [`--add-header`, `Authorization: Bearer ${process.env.YOUTUBE_OAUTH_TOKEN}`] : []),
-                // Bot detection bypass options
+                // Advanced bot detection bypass options
                 '--extractor-args', 'youtube:player_client=android',
                 '--extractor-args', 'youtube:player_skip=webpage',
                 '--extractor-args', 'youtube:player_params={"hl":"en","gl":"US"}',
-                // Additional bypass options
                 '--extractor-args', 'youtube:player_client=web',
                 '--extractor-args', 'youtube:skip=hls,dash',
                 '--extractor-args', 'youtube:player_skip=webpage,configs',
-                // Enhanced bypass for OAuth
                 '--extractor-args', 'youtube:player_client=web,android',
                 '--extractor-args', 'youtube:player_skip=webpage,configs,js',
                 '--extractor-args', 'youtube:player_params={"hl":"en","gl":"US","client":"web"}',
+                // Additional advanced bypass techniques
+                '--extractor-args', 'youtube:player_client=web,android,tv',
+                '--extractor-args', 'youtube:player_skip=webpage,configs,js,player',
+                '--extractor-args', 'youtube:player_params={"hl":"en","gl":"US","client":"web","platform":"web"}',
+                '--extractor-args', 'youtube:skip=hls,dash,webpage',
+                '--extractor-args', 'youtube:player_client=web,android,tv,mobile',
+                '--extractor-args', 'youtube:player_skip=webpage,configs,js,player,api',
+                '--extractor-args', 'youtube:player_params={"hl":"en","gl":"US","client":"web","platform":"web","device":"desktop"}',
+                // Rate limiting and delays
+                '--sleep-interval', '2',
+                '--max-sleep-interval', '5',
+                '--retries', '3',
+                '--fragment-retries', '3',
+                '--file-access-retries', '3',
+                '--extractor-retries', '3',
+                '--downloader-retries', '3',
+                '--downloader-fragment-retries', '3',
+                '--downloader-file-access-retries', '3',
+                '--downloader-extractor-retries', '3',
+                '--downloader-downloader-retries', '3',
                 videoUrl
             ];
             
