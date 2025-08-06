@@ -517,11 +517,6 @@ class PoTokenController {
                 '--fragment-retries', '3',
                 '--file-access-retries', '3',
                 '--extractor-retries', '3',
-                '--downloader-retries', '3',
-                '--downloader-fragment-retries', '3',
-                '--downloader-file-access-retries', '3',
-                '--downloader-extractor-retries', '3',
-                '--downloader-downloader-retries', '3',
                 videoUrl
             ];
             
