@@ -4,6 +4,30 @@ const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 require('dotenv').config();
 
+// Configure axios to suppress verbose logging
+const axios = require('axios');
+axios.defaults.timeout = 300000; // 5 minutes
+axios.defaults.headers.common['Content-Type'] = 'application/json';
+
+// Suppress axios verbose error logging
+axios.interceptors.response.use(
+    response => response,
+    error => {
+        // Only log essential error information, not the entire request/response objects
+        if (error.response) {
+            console.error(`❌ HTTP ${error.response.status}: ${error.response.statusText}`);
+            if (error.response.data && error.response.data.detail) {
+                console.error(`📋 Error detail: ${error.response.data.detail}`);
+            }
+        } else if (error.request) {
+            console.error(`❌ Network error: ${error.message}`);
+        } else {
+            console.error(`❌ Request error: ${error.message}`);
+        }
+        return Promise.reject(error);
+    }
+);
+
 class PriorityQueue {
     constructor() {
         this.queues = {
@@ -321,7 +345,6 @@ class AsyncJobQueue extends EventEmitter {
     }
 
     async executeVideoJob(job) {
-        const axios = require('axios');
         const { createClient } = require('@supabase/supabase-js');
         
         const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
@@ -504,7 +527,6 @@ class AsyncJobQueue extends EventEmitter {
     }
 
     async executeQAJob(job) {
-        const axios = require('axios');
         const { createClient } = require('@supabase/supabase-js');
         
         const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
