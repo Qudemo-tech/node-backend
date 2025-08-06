@@ -236,7 +236,15 @@ class PoTokenController {
                                             return await this.downloadWithDirectExtraction(videoUrl, outputPath);
                                         } catch (directError) {
                                             console.error(`❌ Direct extraction also failed: ${directError.message}`);
-                                            throw new Error(`All methods failed. OAuth: ${nodeError.message}, Python OAuth: ${pythonError.message}, Simple: ${simpleError.message}, Alternative: ${alternativeError.message}, Basic: ${basicError.message}, Direct: ${directError.message}`);
+                                            
+                                            // Try alternative sources as ultimate fallback
+                                            console.log('🔄 Trying alternative sources and manual extraction...');
+                                            try {
+                                                return await this.downloadWithAlternativeSources(videoUrl, outputPath);
+                                            } catch (alternativeSourcesError) {
+                                                console.error(`❌ Alternative sources also failed: ${alternativeSourcesError.message}`);
+                                                throw new Error(`All methods failed. OAuth: ${nodeError.message}, Python OAuth: ${pythonError.message}, Simple: ${simpleError.message}, Alternative: ${alternativeError.message}, Basic: ${basicError.message}, Direct: ${directError.message}, Alternative Sources: ${alternativeSourcesError.message}`);
+                                            }
                                         }
                                     }
                                 }
@@ -311,7 +319,15 @@ class PoTokenController {
                                         return await this.downloadWithDirectExtraction(videoUrl, outputPath);
                                     } catch (directError) {
                                         console.error(`❌ Direct extraction also failed: ${directError.message}`);
-                                        throw new Error(`All methods failed. Node: ${nodeError.message}, Python: ${pythonError.message}, Simple: ${simpleError.message}, Alternative: ${alternativeError.message}, Basic: ${basicError.message}, Direct: ${directError.message}`);
+                                        
+                                        // Try alternative sources as ultimate fallback
+                                        console.log('🔄 Trying alternative sources and manual extraction...');
+                                        try {
+                                            return await this.downloadWithAlternativeSources(videoUrl, outputPath);
+                                        } catch (alternativeSourcesError) {
+                                            console.error(`❌ Alternative sources also failed: ${alternativeSourcesError.message}`);
+                                            throw new Error(`All methods failed. Node: ${nodeError.message}, Python: ${pythonError.message}, Simple: ${simpleError.message}, Alternative: ${alternativeError.message}, Basic: ${basicError.message}, Direct: ${directError.message}, Alternative Sources: ${alternativeSourcesError.message}`);
+                                        }
                                     }
                                 }
                             }
@@ -1432,6 +1448,253 @@ sys.exit(1)
             pythonProcess.on('error', (error) => {
                 console.error(`❌ Direct extraction process error: ${error.message}`);
                 reject(new Error(`Direct extraction process error: ${error.message}`));
+            });
+        });
+    }
+
+    async downloadWithAlternativeSources(videoUrl, outputPath) {
+        return new Promise(async (resolve, reject) => {
+            const { spawn } = require('child_process');
+            const fs = require('fs');
+            
+            console.log(`🔧 Alternative sources method: ${videoUrl} -> ${outputPath}`);
+            console.log('🔧 Using alternative video sources and manual extraction techniques');
+            
+            // Python script for alternative video sources and manual extraction
+            const pythonScript = `
+import urllib.request
+import urllib.parse
+import re
+import json
+import sys
+import os
+import subprocess
+import time
+import random
+from urllib.parse import urlparse, parse_qs
+
+def extract_video_id(url):
+    """Extract video ID from YouTube URL"""
+    patterns = [
+        r'(?:youtube\\.com/watch\\?v=|youtu\\.be/|youtube\\.com/embed/)([^&?/]+)',
+        r'youtube\\.com/watch\\?.*v=([^&]+)'
+    ]
+    
+    for pattern in patterns:
+        match = re.search(pattern, url)
+        if match:
+            return match.group(1)
+    return None
+
+def try_invidious_api(video_id):
+    """Try to get video info from Invidious API"""
+    invidious_instances = [
+        'https://invidious.projectsegfau.lt',
+        'https://invidious.slipfox.xyz',
+        'https://invidious.prvcy.eu',
+        'https://invidious.kavin.rocks',
+        'https://invidious.weblibre.org'
+    ]
+    
+    for instance in invidious_instances:
+        try:
+            url = f"{instance}/api/v1/videos/{video_id}"
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            }
+            
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=10) as response:
+                if response.status == 200:
+                    data = json.loads(response.read().decode('utf-8'))
+                    if 'formatStreams' in data and data['formatStreams']:
+                        return data['formatStreams']
+        except Exception as e:
+            print(f"Invidious {instance} failed: {e}")
+            continue
+    
+    return None
+
+def try_alternative_youtube_frontend(video_id):
+    """Try alternative YouTube frontend"""
+    try:
+        # Try to get video info from alternative frontend
+        url = f"https://pipedapi.kavin.rocks/streams/{video_id}"
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        }
+        
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=10) as response:
+            if response.status == 200:
+                data = json.loads(response.read().decode('utf-8'))
+                if 'videoStreams' in data and data['videoStreams']:
+                    return data['videoStreams']
+    except Exception as e:
+        print(f"Alternative frontend failed: {e}")
+    
+    return None
+
+def try_manual_extraction(video_id):
+    """Try manual extraction from YouTube page"""
+    try:
+        # Try to get the video page and extract URLs manually
+        url = f"https://www.youtube.com/watch?v={video_id}"
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Accept-Encoding': 'gzip, deflate',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1'
+        }
+        
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=30) as response:
+            if response.status == 200:
+                html = response.read().decode('utf-8')
+                
+                # Look for video URLs in the HTML
+                patterns = [
+                    r'"url":"([^"]*googlevideo[^"]*)"',
+                    r'"url":"([^"]*videoplayback[^"]*)"',
+                    r'https://[^"]*googlevideo[^"]*',
+                    r'https://[^"]*videoplayback[^"]*'
+                ]
+                
+                for pattern in patterns:
+                    matches = re.findall(pattern, html)
+                    if matches:
+                        return [{'url': match, 'quality': 'unknown'} for match in matches]
+    except Exception as e:
+        print(f"Manual extraction failed: {e}")
+    
+    return None
+
+def download_video(url, output_path):
+    """Download video using curl/wget"""
+    try:
+        # Try curl first
+        result = subprocess.run(['curl', '-L', '-o', output_path, url], 
+                              capture_output=True, text=True, timeout=300)
+        if result.returncode == 0 and os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+            return True
+    except:
+        pass
+    
+    try:
+        # Try wget as fallback
+        result = subprocess.run(['wget', '-O', output_path, url], 
+                              capture_output=True, text=True, timeout=300)
+        if result.returncode == 0 and os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+            return True
+    except:
+        pass
+    
+    return False
+
+# Main execution
+video_url = "${videoUrl}"
+output_path = "${outputPath}"
+video_id = extract_video_id(video_url)
+
+if not video_id:
+    print("ERROR: Could not extract video ID")
+    sys.exit(1)
+
+print(f"Extracted video ID: {video_id}")
+
+# Try multiple alternative sources
+sources = [
+    ("Invidious API", lambda: try_invidious_api(video_id)),
+    ("Alternative Frontend", lambda: try_alternative_youtube_frontend(video_id)),
+    ("Manual Extraction", lambda: try_manual_extraction(video_id))
+]
+
+urls = []
+for source_name, source_func in sources:
+    print(f"Trying {source_name}...")
+    try:
+        result = source_func()
+        if result:
+            urls.extend(result)
+            print(f"Found {len(result)} URLs from {source_name}")
+            break
+    except Exception as e:
+        print(f"{source_name} failed: {e}")
+
+if not urls:
+    print("ERROR: Could not extract video URLs from any alternative source")
+    sys.exit(1)
+
+print(f"Found {len(urls)} total URLs")
+
+# Try to download with the first available URL
+for i, url_info in enumerate(urls):
+    url = url_info['url'] if isinstance(url_info, dict) else url_info
+    quality = url_info.get('quality', 'unknown') if isinstance(url_info, dict) else 'unknown'
+    
+    print(f"Trying URL {i+1}/{len(urls)}: {quality}")
+    
+    if download_video(url, output_path):
+        print(f"SUCCESS: Downloaded {os.path.getsize(output_path)} bytes")
+        sys.exit(0)
+    else:
+        print(f"Failed to download with URL {i+1}")
+
+print("ERROR: All alternative URLs failed")
+sys.exit(1)
+`;
+            
+            console.log(`🔧 Alternative sources script: ${videoUrl} -> ${outputPath}`);
+            
+            const pythonProcess = spawn('python3', ['-c', pythonScript]);
+            
+            let stdout = '';
+            let stderr = '';
+            
+            pythonProcess.stdout.on('data', (data) => {
+                stdout += data.toString();
+                console.log(`📤 Alternative sources stdout: ${data.toString()}`);
+            });
+            
+            pythonProcess.stderr.on('data', (data) => {
+                stderr += data.toString();
+                console.log(`📥 Alternative sources stderr: ${data.toString()}`);
+            });
+            
+            // Add timeout to prevent hanging
+            const timeout = setTimeout(() => {
+                pythonProcess.kill();
+                reject(new Error('Alternative sources process timed out after 300 seconds'));
+            }, 300000);
+            
+            pythonProcess.on('close', (code) => {
+                clearTimeout(timeout);
+                console.log(`🔚 Alternative sources process closed with code: ${code}`);
+                if (code === 0) {
+                    // Check if file was actually downloaded
+                    if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 0) {
+                        console.log(`✅ Alternative sources successful: ${outputPath} (${fs.statSync(outputPath).size} bytes)`);
+                        resolve({
+                            success: true,
+                            filePath: outputPath,
+                            method: 'alternative-sources-multi',
+                            fileSize: fs.statSync(outputPath).size
+                        });
+                    } else {
+                        console.error(`❌ Alternative sources file not found or empty: ${outputPath}`);
+                        reject(new Error('Alternative sources completed but file is empty or missing'));
+                    }
+                } else {
+                    console.error(`❌ Alternative sources failed with code ${code}: ${stderr}`);
+                    reject(new Error(`Alternative sources failed with code ${code}: ${stderr}`));
+                }
+            });
+            
+            pythonProcess.on('error', (error) => {
+                console.error(`❌ Alternative sources process error: ${error.message}`);
+                reject(new Error(`Alternative sources process error: ${error.message}`));
             });
         });
     }
