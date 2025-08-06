@@ -208,7 +208,15 @@ class PoTokenController {
                             return await this.downloadWithPythonYtDlpNoOAuth(videoUrl, outputPath);
                         } catch (pythonError) {
                             console.error(`❌ Python yt-dlp without OAuth also failed: ${pythonError.message}`);
-                            throw new Error(`Both OAuth and non-OAuth methods failed. OAuth: ${nodeError.message}, No OAuth: ${pythonError.message}`);
+                            
+                            // Try simple yt-dlp as final fallback
+                            console.log('🔄 Trying simple yt-dlp with mobile user agent...');
+                            try {
+                                return await this.downloadWithSimpleYtDlp(videoUrl, outputPath);
+                            } catch (simpleError) {
+                                console.error(`❌ Simple yt-dlp also failed: ${simpleError.message}`);
+                                throw new Error(`All methods failed. OAuth: ${nodeError.message}, Enhanced: ${pythonError.message}, Simple: ${simpleError.message}`);
+                            }
                         }
                     } else {
                         // Non-OAuth related error, try Python fallback with OAuth
@@ -217,7 +225,15 @@ class PoTokenController {
                             return await this.downloadWithPythonYtDlp(videoUrl, outputPath);
                         } catch (pythonError) {
                             console.error(`❌ Python yt-dlp with OAuth also failed: ${pythonError.message}`);
-                            throw new Error(`Both Node.js and Python yt-dlp with OAuth failed. Node: ${nodeError.message}, Python: ${pythonError.message}`);
+                            
+                            // Try simple yt-dlp as final fallback
+                            console.log('🔄 Trying simple yt-dlp with mobile user agent...');
+                            try {
+                                return await this.downloadWithSimpleYtDlp(videoUrl, outputPath);
+                            } catch (simpleError) {
+                                console.error(`❌ Simple yt-dlp also failed: ${simpleError.message}`);
+                                throw new Error(`All methods failed. OAuth: ${nodeError.message}, Python OAuth: ${pythonError.message}, Simple: ${simpleError.message}`);
+                            }
                         }
                     }
                 }
@@ -235,7 +251,15 @@ class PoTokenController {
                         return await this.downloadWithPythonYtDlpNoOAuth(videoUrl, outputPath);
                     } catch (pythonError) {
                         console.error(`❌ Python yt-dlp without OAuth also failed: ${pythonError.message}`);
-                        throw new Error(`Both Node.js and Python yt-dlp without OAuth failed. Node: ${nodeError.message}, Python: ${pythonError.message}`);
+                        
+                        // Try simple yt-dlp as final fallback
+                        console.log('🔄 Trying simple yt-dlp with mobile user agent...');
+                        try {
+                            return await this.downloadWithSimpleYtDlp(videoUrl, outputPath);
+                        } catch (simpleError) {
+                            console.error(`❌ Simple yt-dlp also failed: ${simpleError.message}`);
+                            throw new Error(`All methods failed. Node: ${nodeError.message}, Python: ${pythonError.message}, Simple: ${simpleError.message}`);
+                        }
                     }
                 }
             }
@@ -499,7 +523,7 @@ except Exception as e:
         return new Promise((resolve, reject) => {
             const { spawn } = require('child_process');
             
-            // Enhanced yt-dlp download command WITHOUT OAuth 2.0, using only bot detection bypass
+            // Enhanced yt-dlp download command WITHOUT OAuth 2.0, using advanced bot detection bypass
             const ytDlpArgs = [
                 '--output', outputPath,
                 '--format', 'best[ext=mp4]/best',
@@ -516,21 +540,31 @@ except Exception as e:
                 '--add-header', 'Sec-Fetch-Mode: navigate',
                 '--add-header', 'Sec-Fetch-Site: none',
                 '--add-header', 'Cache-Control: max-age=0',
-                // Bot detection bypass options (no OAuth)
-                '--extractor-args', 'youtube:player_client=android',
-                '--extractor-args', 'youtube:player_skip=webpage',
-                '--extractor-args', 'youtube:player_params={"hl":"en","gl":"US"}',
+                '--add-header', 'Sec-Ch-Ua: "Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+                '--add-header', 'Sec-Ch-Ua-Mobile: ?0',
+                '--add-header', 'Sec-Ch-Ua-Platform: "Windows"',
+                // Advanced bot detection bypass options
                 '--extractor-args', 'youtube:player_client=web',
-                '--extractor-args', 'youtube:skip=hls,dash',
-                '--extractor-args', 'youtube:player_skip=webpage,configs',
-                '--extractor-args', 'youtube:player_client=web,android',
                 '--extractor-args', 'youtube:player_skip=webpage,configs,js',
                 '--extractor-args', 'youtube:player_params={"hl":"en","gl":"US","client":"web"}',
+                '--extractor-args', 'youtube:skip=hls,dash',
+                // Additional bypass techniques
+                '--extractor-args', 'youtube:player_client=android',
+                '--extractor-args', 'youtube:player_skip=webpage,configs',
+                '--extractor-args', 'youtube:player_params={"hl":"en","gl":"US","client":"android"}',
+                // Cookie bypass attempt
+                '--cookies-from-browser', 'chrome',
+                '--no-cookies-from-browser',
+                // Rate limiting and delays
+                '--sleep-interval', '2',
+                '--max-sleep-interval', '5',
+                '--retries', '3',
                 videoUrl
             ];
             
-            console.log(`🔧 Node.js yt-dlp command (no OAuth): yt-dlp ${ytDlpArgs.join(' ')}`);
+            console.log(`🔧 Node.js yt-dlp command (no OAuth, enhanced bypass): yt-dlp ${ytDlpArgs.join(' ')}`);
             console.log('🔐 OAuth token: DISABLED for this attempt');
+            console.log('🛡️ Using enhanced bot detection bypass techniques');
             
             // Try multiple yt-dlp paths
             let ytDlpPath = null;
@@ -573,7 +607,7 @@ except Exception as e:
             const [command, ...args] = ytDlpPath.split(' ');
             const finalArgs = [...args, ...ytDlpArgs];
             
-            console.log(`🔧 Final command (no OAuth): ${command} ${finalArgs.join(' ')}`);
+            console.log(`🔧 Final command (no OAuth, enhanced): ${command} ${finalArgs.join(' ')}`);
             
             const ytDlpProcess = spawn(command, finalArgs);
             
@@ -593,8 +627,8 @@ except Exception as e:
             // Add timeout to prevent hanging
             const timeout = setTimeout(() => {
                 ytDlpProcess.kill();
-                reject(new Error('yt-dlp process timed out after 60 seconds'));
-            }, 60000);
+                reject(new Error('yt-dlp process timed out after 120 seconds'));
+            }, 120000); // Increased timeout for enhanced bypass
             
             ytDlpProcess.on('close', (code) => {
                 clearTimeout(timeout);
@@ -606,7 +640,7 @@ except Exception as e:
                         resolve({
                             success: true,
                             filePath: outputPath,
-                            method: 'yt-dlp-node-no-oauth',
+                            method: 'yt-dlp-node-no-oauth-enhanced',
                             fileSize: fs.statSync(outputPath).size
                         });
                     } else {
@@ -630,18 +664,37 @@ except Exception as e:
         return new Promise((resolve, reject) => {
             const { spawn } = require('child_process');
             
-            // Python script to download with yt-dlp WITHOUT OAuth 2.0, using only bot detection bypass
+            // Python script to download with yt-dlp WITHOUT OAuth 2.0, using advanced bot detection bypass
             const pythonScript = `
 import yt_dlp
 import sys
 import os
+import time
+import random
 
 try:
+    # Enhanced headers for better bot detection bypass
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Accept-Encoding": "gzip, deflate, br",
+        "DNT": "1",
+        "Connection": "keep-alive",
+        "Upgrade-Insecure-Requests": "1",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Cache-Control": "max-age=0",
+        "Sec-Ch-Ua": '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+        "Sec-Ch-Ua-Mobile": "?0",
+        "Sec-Ch-Ua-Platform": '"Windows"'
     }
     
-    print("No OAuth token - using standard headers only")
+    print("No OAuth token - using enhanced headers and bypass techniques")
+    
+    # Add random delay to avoid rate limiting
+    time.sleep(random.uniform(1, 3))
     
     ydl_opts = {
         "outtmpl": "${outputPath}",
@@ -649,26 +702,53 @@ try:
         "http_headers": headers,
         "no_warnings": True,
         "quiet": True,
-        # Bot detection bypass options (no OAuth)
+        # Enhanced bot detection bypass options
         "extractor_args": {
             "youtube": {
-                "player_client": ["android", "web"],
+                "player_client": ["web", "android"],
                 "player_skip": ["webpage", "configs", "js"],
                 "player_params": {"hl": "en", "gl": "US", "client": "web"},
                 "skip": ["hls", "dash"]
             }
-        }
+        },
+        # Rate limiting and retry options
+        "sleep_interval": 2,
+        "max_sleep_interval": 5,
+        "retries": 3,
+        # Additional bypass techniques
+        "nocheckcertificate": True,
+        "ignoreerrors": False,
+        "no_color": True,
+        # Cookie handling
+        "cookiesfrombrowser": ("chrome",),
+        "nocheckcertificate": True
     }
     
-    print(f"yt-dlp options (no OAuth): {ydl_opts}")
+    print(f"yt-dlp options (no OAuth, enhanced): {ydl_opts}")
     
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        ydl.download(["${videoUrl}"])
+    # Try multiple extraction methods
+    success = False
+    for attempt in range(3):
+        try:
+            print(f"Attempt {attempt + 1}/3...")
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.download(["${videoUrl}"])
+            
+            if os.path.exists("${outputPath}") and os.path.getsize("${outputPath}") > 0:
+                print(f"SUCCESS: {os.path.getsize('${outputPath}')} bytes")
+                success = True
+                break
+            else:
+                print(f"Attempt {attempt + 1} failed: File not found or empty")
+                if attempt < 2:
+                    time.sleep(random.uniform(2, 5))
+        except Exception as e:
+            print(f"Attempt {attempt + 1} failed: {str(e)}")
+            if attempt < 2:
+                time.sleep(random.uniform(2, 5))
     
-    if os.path.exists("${outputPath}") and os.path.getsize("${outputPath}") > 0:
-        print(f"SUCCESS: {os.path.getsize('${outputPath}')} bytes")
-    else:
-        print("ERROR: File not found or empty")
+    if not success:
+        print("ERROR: All attempts failed")
         sys.exit(1)
         
 except Exception as e:
@@ -676,7 +756,7 @@ except Exception as e:
     sys.exit(1)
 `;
             
-            console.log(`🔧 Python yt-dlp script (no OAuth): ${videoUrl} -> ${outputPath}`);
+            console.log(`🔧 Python yt-dlp script (no OAuth, enhanced): ${videoUrl} -> ${outputPath}`);
             
             const pythonProcess = spawn('python3', ['-c', pythonScript]);
             
@@ -686,8 +766,8 @@ except Exception as e:
             // Add timeout to prevent hanging
             const pythonTimeout = setTimeout(() => {
                 pythonProcess.kill();
-                reject(new Error('Python yt-dlp process timed out after 60 seconds'));
-            }, 60000);
+                reject(new Error('Python yt-dlp process timed out after 120 seconds'));
+            }, 120000); // Increased timeout for enhanced bypass
             
             pythonProcess.stdout.on('data', (data) => {
                 stdout += data.toString();
@@ -706,11 +786,11 @@ except Exception as e:
                     // Check if file was actually downloaded
                     if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 0) {
                         const fileSize = fs.statSync(outputPath).size;
-                        console.log(`✅ Python yt-dlp download successful (no OAuth): ${outputPath} (${fileSize} bytes)`);
+                        console.log(`✅ Python yt-dlp download successful (no OAuth, enhanced): ${outputPath} (${fileSize} bytes)`);
                         resolve({
                             success: true,
                             filePath: outputPath,
-                            method: 'yt-dlp-python-no-oauth',
+                            method: 'yt-dlp-python-no-oauth-enhanced',
                             fileSize: fileSize
                         });
                     } else {
@@ -726,6 +806,129 @@ except Exception as e:
             pythonProcess.on('error', (error) => {
                 console.error(`❌ Python yt-dlp process error: ${error.message}`);
                 reject(new Error(`Python yt-dlp process error: ${error.message}`));
+            });
+        });
+    }
+
+    async downloadWithSimpleYtDlp(videoUrl, outputPath) {
+        return new Promise((resolve, reject) => {
+            const { spawn } = require('child_process');
+            
+            // Simple yt-dlp download command with mobile user agent and minimal options
+            const ytDlpArgs = [
+                '--output', outputPath,
+                '--format', 'best',
+                '--no-warnings',
+                '--user-agent', 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_7_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.2 Mobile/15E148 Safari/604.1',
+                '--add-header', 'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                '--add-header', 'Accept-Language: en-US,en;q=0.5',
+                '--add-header', 'Accept-Encoding: gzip, deflate',
+                '--add-header', 'Connection: keep-alive',
+                '--add-header', 'Upgrade-Insecure-Requests: 1',
+                // Minimal extraction args
+                '--extractor-args', 'youtube:player_client=mobile',
+                '--extractor-args', 'youtube:player_skip=webpage',
+                '--extractor-args', 'youtube:player_params={"hl":"en","gl":"US"}',
+                // Rate limiting
+                '--sleep-interval', '3',
+                '--max-sleep-interval', '7',
+                '--retries', '5',
+                videoUrl
+            ];
+            
+            console.log(`🔧 Simple yt-dlp command (mobile user agent): yt-dlp ${ytDlpArgs.join(' ')}`);
+            console.log('📱 Using mobile user agent and minimal extraction');
+            
+            // Try multiple yt-dlp paths
+            let ytDlpPath = null;
+            const possiblePaths = [
+                './yt-dlp',
+                'yt-dlp',
+                'python3 -m yt_dlp',
+                'python -m yt_dlp',
+                '~/.local/bin/yt-dlp'
+            ];
+            
+            for (const path of possiblePaths) {
+                try {
+                    if (path.includes('python')) {
+                        // For Python module paths, test differently
+                        const testProcess = spawn('python3', ['-c', 'import yt_dlp; print("OK")']);
+                        testProcess.on('close', (code) => {
+                            if (code === 0) {
+                                ytDlpPath = path;
+                                console.log(`✅ Found yt-dlp at: ${path}`);
+                            }
+                        });
+                    } else if (fs.existsSync(path)) {
+                        ytDlpPath = path;
+                        console.log(`✅ Found yt-dlp at: ${path}`);
+                        break;
+                    }
+                } catch (e) {
+                    console.log(`❌ Path not found: ${path}`);
+                }
+            }
+            
+            if (!ytDlpPath) {
+                // Fallback to python module
+                ytDlpPath = 'python3 -m yt_dlp';
+                console.log(`🔧 Using fallback yt-dlp path: ${ytDlpPath}`);
+            }
+            
+            // Split command for python module
+            const [command, ...args] = ytDlpPath.split(' ');
+            const finalArgs = [...args, ...ytDlpArgs];
+            
+            console.log(`🔧 Final command (simple): ${command} ${finalArgs.join(' ')}`);
+            
+            const ytDlpProcess = spawn(command, finalArgs);
+            
+            let stdout = '';
+            let stderr = '';
+            
+            ytDlpProcess.stdout.on('data', (data) => {
+                stdout += data.toString();
+                console.log(`📤 Simple yt-dlp stdout: ${data.toString()}`);
+            });
+            
+            ytDlpProcess.stderr.on('data', (data) => {
+                stderr += data.toString();
+                console.log(`📥 Simple yt-dlp stderr: ${data.toString()}`);
+            });
+            
+            // Add timeout to prevent hanging
+            const timeout = setTimeout(() => {
+                ytDlpProcess.kill();
+                reject(new Error('Simple yt-dlp process timed out after 180 seconds'));
+            }, 180000); // Longer timeout for simple method
+            
+            ytDlpProcess.on('close', (code) => {
+                clearTimeout(timeout);
+                console.log(`🔚 Simple yt-dlp process closed with code: ${code}`);
+                if (code === 0) {
+                    // Check if file was actually downloaded
+                    if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 0) {
+                        console.log(`✅ Simple yt-dlp download successful: ${outputPath} (${fs.statSync(outputPath).size} bytes)`);
+                        resolve({
+                            success: true,
+                            filePath: outputPath,
+                            method: 'yt-dlp-simple-mobile',
+                            fileSize: fs.statSync(outputPath).size
+                        });
+                    } else {
+                        console.error(`❌ Simple yt-dlp file not found or empty: ${outputPath}`);
+                        reject(new Error('Simple yt-dlp download completed but file is empty or missing'));
+                    }
+                } else {
+                    console.error(`❌ Simple yt-dlp failed with code ${code}: ${stderr}`);
+                    reject(new Error(`Simple yt-dlp failed with code ${code}: ${stderr}`));
+                }
+            });
+            
+            ytDlpProcess.on('error', (error) => {
+                console.error(`❌ Simple yt-dlp process error: ${error.message}`);
+                reject(new Error(`Simple yt-dlp process error: ${error.message}`));
             });
         });
     }
