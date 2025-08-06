@@ -187,6 +187,29 @@ class PoTokenController {
     }
 
     async downloadWithPoToken(videoUrl, outputPath) {
+        // Add timeout wrapper to prevent infinite loops
+        const timeout = 300000; // 5 minutes
+        const timeoutPromise = new Promise((_, reject) => {
+            setTimeout(() => {
+                reject(new Error(`PoToken download timed out after ${timeout/1000} seconds`));
+            }, timeout);
+        });
+
+        try {
+            console.log(`📥 Downloading with yt-dlp: ${videoUrl}`);
+            
+            // Race between the download and timeout
+            return await Promise.race([
+                this._downloadWithPoTokenInternal(videoUrl, outputPath),
+                timeoutPromise
+            ]);
+        } catch (error) {
+            console.error(`❌ PoToken download error: ${error.message}`);
+            throw error;
+        }
+    }
+
+    async _downloadWithPoTokenInternal(videoUrl, outputPath) {
         try {
             console.log(`📥 Downloading with yt-dlp: ${videoUrl}`);
             

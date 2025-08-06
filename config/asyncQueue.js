@@ -597,12 +597,105 @@ class AsyncJobQueue extends EventEmitter {
             'private video',
             'deleted video',
             'copyright strike',
-            'geographic restriction'
+            'geographic restriction',
+            // Additional YouTube-specific errors
+            'HTTP Error 401: Unauthorized',
+            'HTTP Error 403: Forbidden',
+            'HTTP Error 404: Not Found',
+            'HTTP Error 410: Gone',
+            'HTTP Error 502: Bad Gateway',
+            'HTTP Error 503: Service Unavailable',
+            'Video blocked by YouTube bot detection',
+            'Video requires authentication',
+            'Video extraction failed',
+            'Video no longer available',
+            'Video access forbidden',
+            'Video service temporarily unavailable',
+            'Video encoding error',
+            'All download methods failed',
+            'Both Node.js and Python yt-dlp failed',
+            'could not find chrome cookies database',
+            'cookies database',
+            'chrome cookies',
+            'OAuth token appears to be expired',
+            'OAuth token expired',
+            'invalid OAuth token',
+            'authentication failed',
+            'unauthorized access',
+            'forbidden access',
+            'video is private',
+            'video is deleted',
+            'video is restricted',
+            'video is blocked',
+            'video is unavailable',
+            'video is not available',
+            'video is not accessible',
+            'video is not public',
+            'video is not found',
+            'video does not exist',
+            'video has been removed',
+            'video has been deleted',
+            'video has been blocked',
+            'video has been restricted',
+            'video has been made private',
+            'video has been made unavailable',
+            'video has been made inaccessible',
+            'video has been made not public',
+            'video has been made not found',
+            'video has been made not exist',
+            'video has been made removed',
+            'video has been made deleted',
+            'video has been made blocked',
+            'video has been made restricted'
         ];
         
         const isNonRetryable = nonRetryableErrors.some(errType => 
             error.message.includes(errType)
-        ) || error.isVimeoRestriction === true;
+        ) || error.isVimeoRestriction === true || 
+        // Additional checks for comprehensive error patterns
+        error.message.includes('All methods failed') ||
+        error.message.includes('Both Node.js and Python yt-dlp failed') ||
+        error.message.includes('All download methods failed') ||
+        error.message.includes('yt-dlp failed with code 1') ||
+        error.message.includes('ERROR: [youtube]') ||
+        error.message.includes('HTTP Error 4') ||
+        error.message.includes('HTTP Error 5') ||
+        error.message.includes('Sign in to confirm you\'re not a bot') ||
+        error.message.includes('bot detection') ||
+        error.message.includes('authentication') ||
+        error.message.includes('unauthorized') ||
+        error.message.includes('forbidden') ||
+        error.message.includes('not available') ||
+        error.message.includes('unavailable') ||
+        error.message.includes('private') ||
+        error.message.includes('deleted') ||
+        error.message.includes('restricted') ||
+        error.message.includes('blocked') ||
+        error.message.includes('removed') ||
+        error.message.includes('does not exist') ||
+        error.message.includes('not found') ||
+        error.message.includes('not accessible') ||
+        error.message.includes('not public') ||
+        error.message.includes('not exist') ||
+        error.message.includes('has been') ||
+        error.message.includes('has been made') ||
+        error.message.includes('has been removed') ||
+        error.message.includes('has been deleted') ||
+        error.message.includes('has been blocked') ||
+        error.message.includes('has been restricted') ||
+        error.message.includes('has been made private') ||
+        error.message.includes('has been made unavailable') ||
+        error.message.includes('has been made inaccessible') ||
+        error.message.includes('has been made not public') ||
+        error.message.includes('has been made not found') ||
+        error.message.includes('has been made not exist') ||
+        error.message.includes('has been made removed') ||
+        error.message.includes('has been made deleted') ||
+        error.message.includes('has been made blocked') ||
+        error.message.includes('has been made restricted') ||
+        error.message.includes('timed out') ||
+        error.message.includes('timeout') ||
+        error.message.includes('PoToken download timed out');
         
         if (isNonRetryable) {
             job.status = 'failed';
