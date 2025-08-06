@@ -295,263 +295,42 @@ class PoTokenController {
 
     async _downloadWithPoTokenInternal(videoUrl, outputPath) {
         try {
-            console.log(`📥 Starting VM-first download chain: ${videoUrl}`);
+            console.log(`📥 Starting VM-only download approach: ${videoUrl}`);
             
-            // First try with GCP VM (primary method)
-            console.log('🌐 Attempting download with GCP VM...');
-            try {
-                const vmHealth = await this.checkVMHealth();
-                if (vmHealth) {
-                    const result = await this.downloadWithGCPVM(videoUrl, outputPath);
-                    return result;
-                } else {
-                    console.log('⚠️ VM health check failed, falling back to local methods...');
-                }
-            } catch (vmError) {
-                console.error(`❌ GCP VM download failed: ${vmError.message}`);
-                console.log('🔄 Falling back to local methods...');
+            // VM-ONLY APPROACH: Only use GCP VM, no fallbacks
+            console.log('🌐 Attempting download with GCP VM (VM-only mode)...');
+            
+            // Check if VM environment variables are configured
+            const vmProjectId = process.env.GCP_PROJECT_ID;
+            const vmName = process.env.GCP_VM_NAME;
+            const vmZone = process.env.GCP_VM_ZONE;
+            const vmUser = process.env.GCP_VM_USER;
+            
+            if (!vmProjectId || !vmName || !vmZone || !vmUser) {
+                throw new Error('VM environment variables not configured. Please set GCP_PROJECT_ID, GCP_VM_NAME, GCP_VM_ZONE, and GCP_VM_USER in Render dashboard.');
             }
             
-            // Fallback to local methods if VM fails
-            // First try with OAuth token (if available)
-            if (process.env.YOUTUBE_OAUTH_TOKEN) {
-                console.log('🔐 Attempting download with OAuth token...');
-                try {
-                    const result = await this.downloadWithNodeYtDlp(videoUrl, outputPath);
-                    return result;
-            } catch (nodeError) {
-                    console.error(`❌ Node.js yt-dlp with OAuth failed: ${nodeError.message}`);
-                    
-                    // Check if it's a 401 error (OAuth token expired/invalid)
-                    if (nodeError.message.includes('401') || nodeError.message.includes('Unauthorized')) {
-                        console.log('🔄 OAuth token appears to be expired/invalid, trying without OAuth...');
-                        
-                        // Try Python fallback without OAuth
-                        try {
-                            return await this.downloadWithPythonYtDlpNoOAuth(videoUrl, outputPath);
-                        } catch (pythonError) {
-                            console.error(`❌ Python yt-dlp without OAuth also failed: ${pythonError.message}`);
-                            
-                            // Try simple yt-dlp as final fallback
-                            console.log('🔄 Trying simple yt-dlp with mobile user agent...');
-                            try {
-                                return await this.downloadWithSimpleYtDlp(videoUrl, outputPath);
-                            } catch (simpleError) {
-                                console.error(`❌ Simple yt-dlp also failed: ${simpleError.message}`);
-                                
-                                // Try alternative yt-dlp as final fallback
-                                console.log('🔄 Trying alternative yt-dlp with TV client...');
-                                try {
-                                    return await this.downloadWithAlternativeYtDlp(videoUrl, outputPath);
-                                } catch (alternativeError) {
-                                    console.error(`❌ Alternative yt-dlp also failed: ${alternativeError.message}`);
-                                    
-                                    // Try basic yt-dlp as ultimate fallback
-                                    console.log('🔄 Trying basic yt-dlp with minimal options...');
-                                    try {
-                                        return await this.downloadWithBasicYtDlp(videoUrl, outputPath);
-                                    } catch (basicError) {
-                                        console.error(`❌ Basic yt-dlp also failed: ${basicError.message}`);
-                                        
-                                        // Try direct extraction as final fallback
-                                        console.log('🔄 Trying direct extraction without yt-dlp...');
-                                        try {
-                                            return await this.downloadWithDirectExtraction(videoUrl, outputPath);
-                                        } catch (directError) {
-                                            console.error(`❌ Direct extraction also failed: ${directError.message}`);
-                                            
-                                            // Try alternative sources as ultimate fallback
-                                            console.log('🔄 Trying alternative sources and manual extraction...');
-                                            try {
-                                                return await this.downloadWithAlternativeSources(videoUrl, outputPath);
-                                            } catch (alternativeSourcesError) {
-                                                console.error(`❌ Alternative sources also failed: ${alternativeSourcesError.message}`);
-                                                
-                                                // Extract the actual error from the alternative sources failure
-                                                let actualError = alternativeSourcesError.message;
-                                                if (actualError.includes('Alternative sources failed with code 1')) {
-                                                    // Look for the actual error in the logs
-                                                    if (actualError.includes('Sign in to confirm you\'re not a bot')) {
-                                                        actualError = 'Sign in to confirm you\'re not a bot';
-                                                    } else if (actualError.includes('HTTP Error 401: Unauthorized')) {
-                                                        actualError = 'HTTP Error 401: Unauthorized';
-                                                    } else if (actualError.includes('Failed to extract any player response')) {
-                                                        actualError = 'Failed to extract any player response';
-                                                    } else if (actualError.includes('HTTP Error 410: Gone')) {
-                                                        actualError = 'HTTP Error 410: Gone';
-                                                    } else if (actualError.includes('HTTP Error 403: Forbidden')) {
-                                                        actualError = 'HTTP Error 403: Forbidden';
-                                                    } else if (actualError.includes('HTTP Error 502: Bad Gateway')) {
-                                                        actualError = 'HTTP Error 502: Bad Gateway';
-                                                    } else if (actualError.includes('codec can\'t decode')) {
-                                                        actualError = 'Video encoding error';
-                                                    } else {
-                                                        actualError = 'All alternative sources failed';
-                                                    }
-                                                }
-                                                
-                                                // Provide a more specific error message based on the failure type
-                                                let finalErrorMessage = '';
-                                                if (actualError.includes('Sign in to confirm you\'re not a bot')) {
-                                                    finalErrorMessage = 'Video blocked by YouTube bot detection - requires human verification';
-                                                } else if (actualError.includes('HTTP Error 401: Unauthorized')) {
-                                                    finalErrorMessage = 'Video requires authentication - OAuth token expired or invalid';
-                                                } else if (actualError.includes('Failed to extract any player response')) {
-                                                    finalErrorMessage = 'Video extraction failed - YouTube API changes detected';
-                                                } else if (actualError.includes('HTTP Error 410: Gone')) {
-                                                    finalErrorMessage = 'Video no longer available - may be deleted or private';
-                                                } else if (actualError.includes('HTTP Error 403: Forbidden')) {
-                                                    finalErrorMessage = 'Video access forbidden - may be restricted or private';
-                                                } else if (actualError.includes('HTTP Error 502: Bad Gateway')) {
-                                                    finalErrorMessage = 'Video service temporarily unavailable';
-                                                } else if (actualError.includes('Video encoding error')) {
-                                                    finalErrorMessage = 'Video encoding error - video may be corrupted';
-                                                } else if (actualError.includes('All alternative sources failed')) {
-                                                    finalErrorMessage = 'All download methods failed - video may be restricted or blocked';
-                                                } else {
-                                                    finalErrorMessage = `Video download failed: ${actualError}`;
-                                                }
-                                                
-                                                throw new Error(finalErrorMessage);
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    } else {
-                        // Non-OAuth related error, try Python fallback with OAuth
-                        console.log('🔄 Trying Python yt-dlp fallback with OAuth...');
-                try {
-                    return await this.downloadWithPythonYtDlp(videoUrl, outputPath);
-                } catch (pythonError) {
-                            console.error(`❌ Python yt-dlp with OAuth also failed: ${pythonError.message}`);
-                            
-                            // Try simple yt-dlp as final fallback
-                            console.log('🔄 Trying simple yt-dlp with mobile user agent...');
-                            try {
-                                return await this.downloadWithSimpleYtDlp(videoUrl, outputPath);
-                            } catch (simpleError) {
-                                console.error(`❌ Simple yt-dlp also failed: ${simpleError.message}`);
-                                
-                                // Try alternative yt-dlp as final fallback
-                                console.log('🔄 Trying alternative yt-dlp with TV client...');
-                                try {
-                                    return await this.downloadWithAlternativeYtDlp(videoUrl, outputPath);
-                                } catch (alternativeError) {
-                                    console.error(`❌ Alternative yt-dlp also failed: ${alternativeError.message}`);
-                                    throw new Error(`All methods failed. OAuth: ${nodeError.message}, Python OAuth: ${pythonError.message}, Simple: ${simpleError.message}, Alternative: ${alternativeError.message}`);
-                                }
-                            }
-                        }
-                    }
-                }
-            } else {
-                // No OAuth token available, try without OAuth
-                console.log('⚠️ No OAuth token available, trying without OAuth...');
-                try {
-                    return await this.downloadWithNodeYtDlpNoOAuth(videoUrl, outputPath);
-                } catch (nodeError) {
-                    console.error(`❌ Node.js yt-dlp without OAuth failed: ${nodeError.message}`);
-                    
-                    // Fallback to Python yt-dlp without OAuth
-                    console.log('🔄 Trying Python yt-dlp fallback without OAuth...');
-                    try {
-                        return await this.downloadWithPythonYtDlpNoOAuth(videoUrl, outputPath);
-                    } catch (pythonError) {
-                        console.error(`❌ Python yt-dlp without OAuth also failed: ${pythonError.message}`);
-                        
-                        // Try simple yt-dlp as final fallback
-                        console.log('🔄 Trying simple yt-dlp with mobile user agent...');
-                        try {
-                            return await this.downloadWithSimpleYtDlp(videoUrl, outputPath);
-                        } catch (simpleError) {
-                            console.error(`❌ Simple yt-dlp also failed: ${simpleError.message}`);
-                            
-                            // Try alternative yt-dlp as final fallback
-                            console.log('🔄 Trying alternative yt-dlp with TV client...');
-                            try {
-                                return await this.downloadWithAlternativeYtDlp(videoUrl, outputPath);
-                            } catch (alternativeError) {
-                                console.error(`❌ Alternative yt-dlp also failed: ${alternativeError.message}`);
-                                
-                                // Try basic yt-dlp as ultimate fallback
-                                console.log('🔄 Trying basic yt-dlp with minimal options...');
-                                try {
-                                    return await this.downloadWithBasicYtDlp(videoUrl, outputPath);
-                                } catch (basicError) {
-                                    console.error(`❌ Basic yt-dlp also failed: ${basicError.message}`);
-                                    
-                                    // Try direct extraction as final fallback
-                                    console.log('🔄 Trying direct extraction without yt-dlp...');
-                                    try {
-                                        return await this.downloadWithDirectExtraction(videoUrl, outputPath);
-                                    } catch (directError) {
-                                        console.error(`❌ Direct extraction also failed: ${directError.message}`);
-                                        
-                                        // Try alternative sources as ultimate fallback
-                                        console.log('🔄 Trying alternative sources and manual extraction...');
-                                        try {
-                                            return await this.downloadWithAlternativeSources(videoUrl, outputPath);
-                                        } catch (alternativeSourcesError) {
-                                            console.error(`❌ Alternative sources also failed: ${alternativeSourcesError.message}`);
-                                            
-                                            // Extract the actual error from the alternative sources failure
-                                            let actualError = alternativeSourcesError.message;
-                                            if (actualError.includes('Alternative sources failed with code 1')) {
-                                                // Look for the actual error in the logs
-                                                if (actualError.includes('Sign in to confirm you\'re not a bot')) {
-                                                    actualError = 'Sign in to confirm you\'re not a bot';
-                                                } else if (actualError.includes('HTTP Error 401: Unauthorized')) {
-                                                    actualError = 'HTTP Error 401: Unauthorized';
-                                                } else if (actualError.includes('Failed to extract any player response')) {
-                                                    actualError = 'Failed to extract any player response';
-                                                } else if (actualError.includes('HTTP Error 410: Gone')) {
-                                                    actualError = 'HTTP Error 410: Gone';
-                                                } else if (actualError.includes('HTTP Error 403: Forbidden')) {
-                                                    actualError = 'HTTP Error 403: Forbidden';
-                                                } else if (actualError.includes('HTTP Error 502: Bad Gateway')) {
-                                                    actualError = 'HTTP Error 502: Bad Gateway';
-                                                } else if (actualError.includes('codec can\'t decode')) {
-                                                    actualError = 'Video encoding error';
-                                                } else {
-                                                    actualError = 'All alternative sources failed';
-                                                }
-                                            }
-                                            
-                                            // Provide a more specific error message based on the failure type
-                                            let finalErrorMessage = '';
-                                            if (actualError.includes('Sign in to confirm you\'re not a bot')) {
-                                                finalErrorMessage = 'Video blocked by YouTube bot detection - requires human verification';
-                                            } else if (actualError.includes('HTTP Error 401: Unauthorized')) {
-                                                finalErrorMessage = 'Video requires authentication - OAuth token expired or invalid';
-                                            } else if (actualError.includes('Failed to extract any player response')) {
-                                                finalErrorMessage = 'Video extraction failed - YouTube API changes detected';
-                                            } else if (actualError.includes('HTTP Error 410: Gone')) {
-                                                finalErrorMessage = 'Video no longer available - may be deleted or private';
-                                            } else if (actualError.includes('HTTP Error 403: Forbidden')) {
-                                                finalErrorMessage = 'Video access forbidden - may be restricted or private';
-                                            } else if (actualError.includes('HTTP Error 502: Bad Gateway')) {
-                                                finalErrorMessage = 'Video service temporarily unavailable';
-                                            } else if (actualError.includes('Video encoding error')) {
-                                                finalErrorMessage = 'Video encoding error - video may be corrupted';
-                                            } else if (actualError.includes('All alternative sources failed')) {
-                                                finalErrorMessage = 'All download methods failed - video may be restricted or blocked';
-                                            } else {
-                                                finalErrorMessage = `Video download failed: ${actualError}`;
-                                            }
-                                            
-                                            throw new Error(finalErrorMessage);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
+            console.log(`🔧 VM Configuration: ${vmName} in ${vmZone} (${vmProjectId})`);
+            
+            // Try VM download
+            try {
+                const result = await this.downloadWithGCPVM(videoUrl, outputPath);
+                console.log('✅ VM download successful!');
+                return result;
+            } catch (vmError) {
+                console.error(`❌ VM download failed: ${vmError.message}`);
+                
+                // If VM fails, provide clear error message
+                if (vmError.message.includes('gcloud not available')) {
+                    throw new Error('VM approach requires gcloud CLI. Please install gcloud on the server or use a different deployment method.');
+                } else if (vmError.message.includes('VM health check failed')) {
+                    throw new Error('VM is not accessible. Please check VM status and network connectivity.');
+                } else {
+                    throw new Error(`VM download failed: ${vmError.message}. This is the only available method in VM-only mode.`);
                 }
             }
         } catch (error) {
-            console.error(`❌ Download error: ${error.message}`);
+            console.error(`❌ VM-only download failed: ${error.message}`);
             throw error;
         }
     }
