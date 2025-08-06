@@ -222,7 +222,15 @@ class PoTokenController {
                                     return await this.downloadWithAlternativeYtDlp(videoUrl, outputPath);
                                 } catch (alternativeError) {
                                     console.error(`❌ Alternative yt-dlp also failed: ${alternativeError.message}`);
-                                    throw new Error(`All methods failed. OAuth: ${nodeError.message}, Enhanced: ${pythonError.message}, Simple: ${simpleError.message}, Alternative: ${alternativeError.message}`);
+                                    
+                                    // Try basic yt-dlp as ultimate fallback
+                                    console.log('🔄 Trying basic yt-dlp with minimal options...');
+                                    try {
+                                        return await this.downloadWithBasicYtDlp(videoUrl, outputPath);
+                                    } catch (basicError) {
+                                        console.error(`❌ Basic yt-dlp also failed: ${basicError.message}`);
+                                        throw new Error(`All methods failed. OAuth: ${nodeError.message}, Python OAuth: ${pythonError.message}, Simple: ${simpleError.message}, Alternative: ${alternativeError.message}, Basic: ${basicError.message}`);
+                                    }
                                 }
                             }
                         }
@@ -281,7 +289,15 @@ class PoTokenController {
                                 return await this.downloadWithAlternativeYtDlp(videoUrl, outputPath);
                             } catch (alternativeError) {
                                 console.error(`❌ Alternative yt-dlp also failed: ${alternativeError.message}`);
-                                throw new Error(`All methods failed. Node: ${nodeError.message}, Python: ${pythonError.message}, Simple: ${simpleError.message}, Alternative: ${alternativeError.message}`);
+                                
+                                // Try basic yt-dlp as ultimate fallback
+                                console.log('🔄 Trying basic yt-dlp with minimal options...');
+                                try {
+                                    return await this.downloadWithBasicYtDlp(videoUrl, outputPath);
+                                } catch (basicError) {
+                                    console.error(`❌ Basic yt-dlp also failed: ${basicError.message}`);
+                                    throw new Error(`All methods failed. Node: ${nodeError.message}, Python: ${pythonError.message}, Simple: ${simpleError.message}, Alternative: ${alternativeError.message}, Basic: ${basicError.message}`);
+                                }
                             }
                         }
                     }
@@ -1072,6 +1088,122 @@ except Exception as e:
             ytDlpProcess.on('error', (error) => {
                 console.error(`❌ Alternative yt-dlp process error: ${error.message}`);
                 reject(new Error(`Alternative yt-dlp process error: ${error.message}`));
+            });
+        });
+    }
+
+    async downloadWithBasicYtDlp(videoUrl, outputPath) {
+        return new Promise((resolve, reject) => {
+            const { spawn } = require('child_process');
+            
+            // Basic yt-dlp download command with minimal options
+            const ytDlpArgs = [
+                '--output', outputPath,
+                '--format', 'worst',  // Get the worst quality available
+                '--no-warnings',
+                '--quiet',
+                '--no-check-certificate',
+                '--no-cookies-from-browser',
+                '--no-cookies',
+                '--extract-audio',
+                '--audio-format', 'mp3',
+                '--audio-quality', '0',
+                videoUrl
+            ];
+            
+            console.log(`🔧 Basic yt-dlp command (minimal options): yt-dlp ${ytDlpArgs.join(' ')}`);
+            console.log('🔧 Using most basic yt-dlp approach possible');
+            
+            // Try multiple yt-dlp paths
+            let ytDlpPath = null;
+            const possiblePaths = [
+                './yt-dlp',
+                'yt-dlp',
+                'python3 -m yt_dlp',
+                'python -m yt_dlp',
+                '~/.local/bin/yt-dlp'
+            ];
+            
+            for (const path of possiblePaths) {
+                try {
+                    if (path.includes('python')) {
+                        // For Python module paths, test differently
+                        const testProcess = spawn('python3', ['-c', 'import yt_dlp; print("OK")']);
+                        testProcess.on('close', (code) => {
+                            if (code === 0) {
+                                ytDlpPath = path;
+                                console.log(`✅ Found yt-dlp at: ${path}`);
+                            }
+                        });
+                    } else if (fs.existsSync(path)) {
+                        ytDlpPath = path;
+                        console.log(`✅ Found yt-dlp at: ${path}`);
+                        break;
+                    }
+                } catch (e) {
+                    console.log(`❌ Path not found: ${path}`);
+                }
+            }
+            
+            if (!ytDlpPath) {
+                // Fallback to python module
+                ytDlpPath = 'python3 -m yt_dlp';
+                console.log(`🔧 Using fallback yt-dlp path: ${ytDlpPath}`);
+            }
+            
+            // Split command for python module
+            const [command, ...args] = ytDlpPath.split(' ');
+            const finalArgs = [...args, ...ytDlpArgs];
+            
+            console.log(`🔧 Final command (basic): ${command} ${finalArgs.join(' ')}`);
+            
+            const ytDlpProcess = spawn(command, finalArgs);
+            
+            let stdout = '';
+            let stderr = '';
+            
+            ytDlpProcess.stdout.on('data', (data) => {
+                stdout += data.toString();
+                console.log(`📤 Basic yt-dlp stdout: ${data.toString()}`);
+            });
+            
+            ytDlpProcess.stderr.on('data', (data) => {
+                stderr += data.toString();
+                console.log(`📥 Basic yt-dlp stderr: ${data.toString()}`);
+            });
+            
+            // Add timeout to prevent hanging
+            const timeout = setTimeout(() => {
+                ytDlpProcess.kill();
+                reject(new Error('Basic yt-dlp process timed out after 300 seconds'));
+            }, 300000); // Longer timeout for basic method
+            
+            ytDlpProcess.on('close', (code) => {
+                clearTimeout(timeout);
+                console.log(`🔚 Basic yt-dlp process closed with code: ${code}`);
+                if (code === 0) {
+                    // Check if file was actually downloaded
+                    if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 0) {
+                        console.log(`✅ Basic yt-dlp download successful: ${outputPath} (${fs.statSync(outputPath).size} bytes)`);
+                        resolve({
+                            success: true,
+                            filePath: outputPath,
+                            method: 'yt-dlp-basic-minimal',
+                            fileSize: fs.statSync(outputPath).size
+                        });
+                    } else {
+                        console.error(`❌ Basic yt-dlp file not found or empty: ${outputPath}`);
+                        reject(new Error('Basic yt-dlp download completed but file is empty or missing'));
+                    }
+                } else {
+                    console.error(`❌ Basic yt-dlp failed with code ${code}: ${stderr}`);
+                    reject(new Error(`Basic yt-dlp failed with code ${code}: ${stderr}`));
+                }
+            });
+            
+            ytDlpProcess.on('error', (error) => {
+                console.error(`❌ Basic yt-dlp process error: ${error.message}`);
+                reject(new Error(`Basic yt-dlp process error: ${error.message}`));
             });
         });
     }
