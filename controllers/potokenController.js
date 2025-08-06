@@ -1230,15 +1230,17 @@ except Exception as e:
             const fs = require('fs');
             
             console.log(`🔧 Direct extraction method: ${videoUrl} -> ${outputPath}`);
-            console.log('🔧 Using direct HTTP requests to extract video URLs');
+            console.log('🔧 Using direct HTTP requests to extract video URLs (built-in modules only)');
             
-            // Python script for direct video URL extraction without yt-dlp
+            // Python script for direct video URL extraction without yt-dlp (built-in modules only)
             const pythonScript = `
-import requests
+import urllib.request
+import urllib.parse
 import re
 import json
 import sys
 import os
+import subprocess
 from urllib.parse import urlparse, parse_qs
 
 def extract_video_id(url):
@@ -1255,7 +1257,7 @@ def extract_video_id(url):
     return None
 
 def get_video_info(video_id):
-    """Get video info using YouTube's public API"""
+    """Get video info using YouTube's public API (built-in urllib only)"""
     try:
         # Try to get video info from YouTube's public API
         url = f"https://www.youtube.com/get_video_info?video_id={video_id}"
@@ -1268,13 +1270,18 @@ def get_video_info(video_id):
             'Upgrade-Insecure-Requests': '1'
         }
         
-        response = requests.get(url, headers=headers, timeout=30)
-        if response.status_code == 200:
-            # Parse the response
-            data = parse_qs(response.text)
-            if 'player_response' in data:
-                player_response = json.loads(data['player_response'][0])
-                return player_response
+        # Create request with headers
+        req = urllib.request.Request(url, headers=headers)
+        
+        # Make the request
+        with urllib.request.urlopen(req, timeout=30) as response:
+            if response.status == 200:
+                data = response.read().decode('utf-8')
+                # Parse the response
+                parsed_data = parse_qs(data)
+                if 'player_response' in parsed_data:
+                    player_response = json.loads(parsed_data['player_response'][0])
+                    return player_response
     except Exception as e:
         print(f"Error getting video info: {e}")
     
@@ -1319,7 +1326,6 @@ def download_video(url, output_path):
     """Download video using curl/wget"""
     try:
         # Try curl first
-        import subprocess
         result = subprocess.run(['curl', '-L', '-o', output_path, url], 
                               capture_output=True, text=True, timeout=300)
         if result.returncode == 0 and os.path.exists(output_path) and os.path.getsize(output_path) > 0:
@@ -1329,7 +1335,6 @@ def download_video(url, output_path):
     
     try:
         # Try wget as fallback
-        import subprocess
         result = subprocess.run(['wget', '-O', output_path, url], 
                               capture_output=True, text=True, timeout=300)
         if result.returncode == 0 and os.path.exists(output_path) and os.path.getsize(output_path) > 0:
@@ -1378,7 +1383,7 @@ print("ERROR: All direct URLs failed")
 sys.exit(1)
 `;
             
-            console.log(`🔧 Direct extraction script: ${videoUrl} -> ${outputPath}`);
+            console.log(`🔧 Direct extraction script (built-in modules): ${videoUrl} -> ${outputPath}`);
             
             const pythonProcess = spawn('python3', ['-c', pythonScript]);
             
@@ -1411,7 +1416,7 @@ sys.exit(1)
                         resolve({
                             success: true,
                             filePath: outputPath,
-                            method: 'direct-extraction-http',
+                            method: 'direct-extraction-http-builtin',
                             fileSize: fs.statSync(outputPath).size
                         });
                     } else {
