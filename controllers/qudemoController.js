@@ -33,6 +33,8 @@ const getQudemos = async (req, res) => {
   try {
     const { searchTerm, category, isActive, sortBy, sortOrder, page, limit, companyId } = req.query;
     
+    console.log('🔍 getQudemos called with query params:', { searchTerm, category, isActive, sortBy, sortOrder, page, limit, companyId });
+    
     let query = supabase
       .from('qudemos')
       .select('*');
@@ -69,9 +71,18 @@ const getQudemos = async (req, res) => {
 
     const { data, error, count } = await query;
 
+    console.log('📋 getQudemos query result:', { 
+      dataCount: data?.length || 0, 
+      error: error?.message, 
+      count: count 
+    });
+
     if (error) {
+      console.error('❌ getQudemos database error:', error);
       return res.status(400).json({ error: error.message });
     }
+
+    console.log('✅ getQudemos returning data:', data?.slice(0, 2)); // Log first 2 items
 
     res.json({ 
       success: true, 

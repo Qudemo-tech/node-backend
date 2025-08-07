@@ -638,6 +638,8 @@ const videoController = {
                         video_name: video_id
                     };
 
+                    console.log('💾 Inserting qudemo data:', qudemoData);
+                    
                     const { error: qudemoError } = await supabase
                         .from('qudemos')
                         .insert(qudemoData);
@@ -649,6 +651,8 @@ const videoController = {
                             error: `Qudemo database error: ${qudemoError.message}`
                         });
                     }
+
+                    console.log('✅ Qudemo inserted successfully');
 
                     res.json({
                         success: true,
