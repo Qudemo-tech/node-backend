@@ -373,6 +373,30 @@ const queueController = {
                 error: 'Failed to clear video from cache'
             });
         }
+    },
+
+    async emergencyClear(req, res) {
+        try {
+            console.log('🚨 Emergency clear requested by user');
+            
+            // Perform emergency clear
+            asyncQueue.emergencyClear();
+            
+            res.json({
+                success: true,
+                message: 'Emergency clear completed successfully',
+                data: {
+                    clearedAt: new Date().toISOString(),
+                    action: 'All queues cleared and processing stopped'
+                }
+            });
+        } catch (error) {
+            console.error('❌ Emergency clear error:', error);
+            res.status(500).json({
+                success: false,
+                error: 'Failed to perform emergency clear'
+            });
+        }
     }
 };
 

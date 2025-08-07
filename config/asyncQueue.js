@@ -87,6 +87,17 @@ class PriorityQueue {
         }
         return null;
     }
+
+    clear() {
+        this.queues = {
+            1: [], // High priority (QA)
+            2: [], // Medium priority (Video)
+            3: []  // Low priority
+        };
+        this.processing.clear();
+        this.jobIdCounter = 1;
+        console.log('🧹 PriorityQueue cleared');
+    }
 }
 
 class AsyncJobQueue extends EventEmitter {
@@ -615,13 +626,17 @@ class AsyncJobQueue extends EventEmitter {
             'HTTP Error 403: Forbidden',
             'HTTP Error 404: Not Found',
             'HTTP Error 410: Gone',
+            'HTTP Error 429: Too Many Requests',
+            'HTTP Error 500: Internal Server Error',
             'HTTP Error 502: Bad Gateway',
             'HTTP Error 503: Service Unavailable',
+            'Too many requests',
             'authentication failed',
             'unauthorized access',
             'forbidden access',
             'timed out',
-            'timeout'
+            'timeout',
+            'Loom transcription failed'
         ];
         
         const isNonRetryable = nonRetryableErrors.some(errType => 
@@ -631,6 +646,8 @@ class AsyncJobQueue extends EventEmitter {
         error.message.includes('Gemini API error') ||
         error.message.includes('Gemini transcription failed') ||
         error.message.includes('Video processing failed') ||
+        error.message.includes('Loom transcription failed') ||
+        error.message.includes('Too many requests') ||
         error.message.includes('HTTP Error 4') ||
         error.message.includes('HTTP Error 5') ||
         error.message.includes('authentication') ||
@@ -670,6 +687,11 @@ class AsyncJobQueue extends EventEmitter {
         if (isNonRetryable) {
             job.status = 'failed';
             job.failedAt = Date.now();
+            // Clean up video key from processing videos to prevent infinite loops
+            if (job.videoKey) {
+                this.processingVideos.delete(job.videoKey);
+                console.log(`🧹 Cleaned up video key from processing: ${job.videoKey}`);
+            }
             console.error(`💥 Job ${job.id} failed permanently (non-retryable error): ${error.message}`);
             this.emit('jobFailed', { queue: job.type, jobId: job.id, error: error.message });
             return;
@@ -679,6 +701,12 @@ class AsyncJobQueue extends EventEmitter {
             // Retry with exponential backoff
             const delay = this.backoffDelay * Math.pow(2, job.attempts - 1);
             console.log(`🔄 Retrying job ${job.id} in ${delay}ms (attempt ${job.attempts}/${this.retryAttempts})`);
+            
+            // Clean up video key before retrying to prevent conflicts
+            if (job.videoKey) {
+                this.processingVideos.delete(job.videoKey);
+                console.log(`🧹 Cleaned up video key before retry: ${job.videoKey}`);
+            }
             
             setTimeout(() => {
                 if (job.type === 'video') {
@@ -690,6 +718,11 @@ class AsyncJobQueue extends EventEmitter {
         } else {
             job.status = 'failed';
             job.failedAt = Date.now();
+            // Clean up video key from processing videos
+            if (job.videoKey) {
+                this.processingVideos.delete(job.videoKey);
+                console.log(`🧹 Cleaned up video key after max retries: ${job.videoKey}`);
+            }
             console.error(`💥 Job ${job.id} failed permanently after ${job.attempts} attempts`);
             this.emit('jobFailed', { queue: job.type, jobId: job.id, error: error.message });
         }
@@ -728,6 +761,28 @@ class AsyncJobQueue extends EventEmitter {
         this.processedVideos.delete(videoKey);
         this.processingVideos.delete(videoKey);
         console.log(`🧹 Cleared specific video from cache: ${videoKey}`);
+    }
+
+    // Emergency function to clear all queues and stop processing
+    emergencyClear() {
+        console.log('🚨 EMERGENCY: Clearing all queues and stopping processing...');
+        
+        // Clear all queues
+        this.videoQueue.clear();
+        this.qaQueue.clear();
+        
+        // Clear all tracking sets
+        this.processedVideos.clear();
+        this.processingVideos.clear();
+        
+        // Reset counters
+        this.activeVideoJobs = 0;
+        this.activeQAJobs = 0;
+        
+        // Stop processing
+        this.isProcessing = false;
+        
+        console.log('✅ Emergency clear completed. All queues cleared and processing stopped.');
     }
 
     getMemoryUsage() {
