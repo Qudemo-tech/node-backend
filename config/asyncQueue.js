@@ -389,7 +389,7 @@ class AsyncJobQueue extends EventEmitter {
                 payload.build_index = buildIndex;
             }
 
-            const response = await axios.post(`${PYTHON_API_BASE_URL}/process-video`, payload, {
+            const response = await axios.post(`${PYTHON_API_BASE_URL}/process-video/${companyName}`, payload, {
                 timeout: 300000, // 5 minutes
                 headers: { 'Content-Type': 'application/json' }
             });

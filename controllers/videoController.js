@@ -47,7 +47,7 @@ class VideoProcessingService {
             if (!payload.company_name) {
                 throw new Error("Company name is required for video processing");
             }
-            const response = await axios.post(`${this.apiBaseUrl}/process-video`, payload);
+            const response = await axios.post(`${this.apiBaseUrl}/process-video/${payload.company_name}`, payload);
             return {
                 success: true,
                 data: response.data
