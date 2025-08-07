@@ -1,5 +1,6 @@
 const axios = require('axios');
 const { createClient } = require('@supabase/supabase-js');
+const { v4: uuidv4 } = require('uuid');
 require('dotenv').config();
 const path = require('path');
 
@@ -11,6 +12,27 @@ const supabase = createClient(
 
 // Configuration
 const PYTHON_API_BASE_URL = process.env.PYTHON_API_BASE_URL || 'http://localhost:5001';
+
+// Helper function to generate thumbnail URLs
+function generateThumbnailUrl(videoUrl) {
+    if (!videoUrl) return null;
+    
+    // Loom video thumbnail
+    if (videoUrl.includes('loom.com')) {
+        const loomMatch = videoUrl.match(/loom\.com\/(?:share|embed|recordings)\/([a-zA-Z0-9-]+)/);
+        if (loomMatch && loomMatch[1]) {
+            return `https://cdn.loom.com/sessions/thumbnails/${loomMatch[1]}-with-play.gif`;
+        }
+    }
+    
+    // YouTube video thumbnail
+    const ytMatch = videoUrl.match(/(?:youtube\.com\/(?:[^\/\n\s]+\/\S+\/|(?:v|e(?:mbed)?|shorts)\/|.*[?&]v=)|youtu\.be\/)([\w-]{11})/);
+    if (ytMatch && ytMatch[1]) {
+        return `https://img.youtube.com/vi/${ytMatch[1]}/maxresdefault.jpg`;
+    }
+    
+    return null;
+}
 
 class VideoProcessingService {
     constructor(companyName = null) {
@@ -604,7 +626,8 @@ const videoController = {
                 console.log('🔍 Python API response received:', response.data);
                 
                 if (response.data && response.data.success) {
-                    const video_id = response.data.video_id;
+                    // Extract video_id from nested response structure or generate one
+                    const video_id = response.data.data?.video_id || response.data.video_id || uuidv4();
                     console.log('✅ Video processing successful, video_id:', video_id);
                     
                     console.log('💾 Inserting into videos table...');
@@ -636,7 +659,7 @@ const videoController = {
                         title: `${videoType} Video Demo - ${finalCompanyName}`,
                         description: `AI-powered ${videoType} video demo for ${finalCompanyName}`,
                         video_url: videoUrl,
-                        thumbnail_url: this.generateThumbnailUrl(videoUrl),
+                        thumbnail_url: generateThumbnailUrl(videoUrl),
                         company_id: company.id,
                         created_by: req.user?.userId || req.user?.id,
                         is_active: true,
@@ -717,27 +740,6 @@ const videoController = {
                 error: 'An error occurred while creating the video'
             });
         }
-    },
-
-    // Helper method to generate thumbnail URLs
-    generateThumbnailUrl(videoUrl) {
-        if (!videoUrl) return null;
-        
-        // Loom video thumbnail
-        if (videoUrl.includes('loom.com')) {
-            const loomMatch = videoUrl.match(/loom\.com\/(?:share|embed|recordings)\/([a-zA-Z0-9-]+)/);
-            if (loomMatch && loomMatch[1]) {
-                return `https://cdn.loom.com/sessions/thumbnails/${loomMatch[1]}-with-play.gif`;
-            }
-        }
-        
-        // YouTube video thumbnail
-        const ytMatch = videoUrl.match(/(?:youtube\.com\/(?:[^\/\n\s]+\/\S+\/|(?:v|e(?:mbed)?|shorts)\/|.*[?&]v=)|youtu\.be\/)([\w-]{11})/);
-        if (ytMatch && ytMatch[1]) {
-            return `https://img.youtube.com/vi/${ytMatch[1]}/maxresdefault.jpg`;
-        }
-        
-        return null;
     },
 
     /**
