@@ -438,7 +438,7 @@ class AsyncJobQueue extends EventEmitter {
                 transcript_url: null, // Not used for Loom videos
                 faiss_index_url: null, // Not used for Loom videos
                 video_name: video_id,
-                created_at: new Date().toISOString()
+                created_at: new Date().toISOString() // This is correct for videos table (timestamp with time zone)
             };
 
             console.log(`💾 Saving video to database:`, videoData);
@@ -467,8 +467,8 @@ class AsyncJobQueue extends EventEmitter {
                     company_id: company.id,
                     created_by: userId,
                     is_active: true,
-                    created_at: new Date().toISOString(),
-                    updated_at: new Date().toISOString(),
+                    created_at: new Date().toISOString().replace('Z', ''), // Remove timezone for timestamp without time zone
+                    updated_at: new Date().toISOString().replace('Z', ''), // Remove timezone for timestamp without time zone
                     video_name: video_id
                 };
 
