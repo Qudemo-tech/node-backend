@@ -46,7 +46,9 @@ const allowedOrigins = [
     'http://localhost:3000',
     'http://localhost:3001',
     'https://qu-demo.vercel.app',
-    'https://qudemo.com'
+    'https://qudemo.com',
+    'https://qudemo-frontend.vercel.app',
+    'https://qudemo.vercel.app'
 ];
 
 const corsOptions = {
@@ -54,9 +56,13 @@ const corsOptions = {
         // Allow requests with no origin (like mobile apps or curl requests)
         if (!origin) return callback(null, true);
         
+        // Log the origin for debugging
+        console.log('CORS request from origin:', origin);
+        
         if (allowedOrigins.indexOf(origin) !== -1) {
             callback(null, true);
         } else {
+            console.log('CORS blocked origin:', origin);
             callback(new Error('Not allowed by CORS'));
         }
     },
@@ -66,7 +72,17 @@ const corsOptions = {
     optionsSuccessStatus: 200 // Some legacy browsers (IE11, various SmartTVs) choke on 204
 };
 
-app.use(cors(corsOptions));
+// Use more permissive CORS in development
+if (process.env.NODE_ENV === 'development') {
+    app.use(cors({
+        origin: true,
+        credentials: true,
+        methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+        allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
+    }));
+} else {
+    app.use(cors(corsOptions));
+}
 
 // Logging middleware
 app.use(morgan('combined'));
