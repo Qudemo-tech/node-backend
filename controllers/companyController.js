@@ -412,15 +412,24 @@ const companyController = {
             const { role } = req.user;
             const userId = req.user.userId || req.user.id;
 
+            console.log('🏢 getCompanies called with:', {
+                role,
+                userId,
+                user: req.user
+            });
+
             if (role === 'admin') {
+                console.log('👑 Admin user - fetching all companies');
                 const { data: companies, error } = await supabase
                     .from('companies')
                     .select('*')
                     .order('created_at', { ascending: false });
 
                 if (error) throw error;
+                console.log(`✅ Admin: Found ${companies?.length || 0} companies`);
                 return res.json({ success: true, data: companies });
             } else {
+                console.log('👤 Regular user - fetching user company');
                 const { data: company, error } = await supabase
                     .from('companies')
                     .select('*')
@@ -428,10 +437,12 @@ const companyController = {
                     .limit(1);
 
                 if (error) throw error;
+                console.log(`✅ User: Found ${company?.length || 0} companies for user ${userId}`);
+                console.log('📋 Company data:', company);
                 return res.json({ success: true, data: company || [] });
             }
         } catch (error) {
-            console.error('Get companies error:', error);
+            console.error('❌ Get companies error:', error);
             res.status(500).json({
                 success: false,
                 error: 'An error occurred while fetching company data.'
