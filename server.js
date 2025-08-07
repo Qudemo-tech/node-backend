@@ -72,17 +72,13 @@ const corsOptions = {
     optionsSuccessStatus: 200 // Some legacy browsers (IE11, various SmartTVs) choke on 204
 };
 
-// Use more permissive CORS in development
-if (process.env.NODE_ENV === 'development') {
-    app.use(cors({
-        origin: true,
-        credentials: true,
-        methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-        allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
-    }));
-} else {
-    app.use(cors(corsOptions));
-}
+// Use permissive CORS for both development and production (temporary fix)
+app.use(cors({
+    origin: true,  // Allow all origins temporarily
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
+}));
 
 // Logging middleware
 app.use(morgan('combined'));
