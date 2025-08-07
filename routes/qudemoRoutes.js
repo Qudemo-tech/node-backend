@@ -29,4 +29,7 @@ router.get('/:qudemoId/stats', qudemoController.getQudemoStats);
 // Get qudemo categories
 router.get('/categories/list', qudemoController.getQudemoCategories);
 
+// Debug endpoint
+router.get('/debug/all', qudemoController.debugQudemos);
+
 module.exports = router; 

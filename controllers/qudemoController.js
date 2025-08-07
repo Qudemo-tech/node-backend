@@ -35,6 +35,8 @@ const getQudemos = async (req, res) => {
     
     console.log('🔍 getQudemos called with query params:', { searchTerm, category, isActive, sortBy, sortOrder, page, limit, companyId });
     
+    console.log('🔍 Building database query for qudemos...');
+    
     let query = supabase
       .from('qudemos')
       .select('*');
@@ -53,6 +55,7 @@ const getQudemos = async (req, res) => {
     }
 
     if (companyId) {
+      console.log(`🔍 Adding company filter: company_id = ${companyId}`);
       query = query.eq('company_id', companyId);
     }
 
@@ -69,12 +72,15 @@ const getQudemos = async (req, res) => {
     
     query = query.range(from, to);
 
+    console.log('🔍 Executing database query...');
     const { data, error, count } = await query;
 
     console.log('📋 getQudemos query result:', { 
       dataCount: data?.length || 0, 
       error: error?.message, 
-      count: count 
+      count: count,
+      hasData: !!data,
+      dataType: typeof data
     });
 
     if (error) {
@@ -232,6 +238,54 @@ const getQudemoCategories = async (req, res) => {
   }
 };
 
+// Debug endpoint to check database contents
+const debugQudemos = async (req, res) => {
+  try {
+    console.log('🔍 Debug endpoint called');
+    
+    // Get all qudemos without any filters
+    const { data: allQudemos, error: allError } = await supabase
+      .from('qudemos')
+      .select('*');
+    
+    console.log('🔍 All qudemos in database:', {
+      count: allQudemos?.length || 0,
+      error: allError?.message,
+      data: allQudemos?.slice(0, 3) // First 3 items
+    });
+    
+    // Get all companies
+    const { data: allCompanies, error: companiesError } = await supabase
+      .from('companies')
+      .select('*');
+    
+    console.log('🔍 All companies in database:', {
+      count: allCompanies?.length || 0,
+      error: companiesError?.message,
+      data: allCompanies?.slice(0, 3) // First 3 items
+    });
+    
+    res.json({
+      success: true,
+      debug: {
+        allQudemos: {
+          count: allQudemos?.length || 0,
+          error: allError?.message,
+          sample: allQudemos?.slice(0, 3)
+        },
+        allCompanies: {
+          count: allCompanies?.length || 0,
+          error: companiesError?.message,
+          sample: allCompanies?.slice(0, 3)
+        }
+      }
+    });
+  } catch (error) {
+    console.error('❌ Debug endpoint error:', error);
+    res.status(500).json({ error: 'Debug endpoint failed' });
+  }
+};
+
 module.exports = {
   createQudemo,
   getQudemos,
@@ -239,5 +293,6 @@ module.exports = {
   updateQudemo,
   deleteQudemo,
   getQudemoStats,
-  getQudemoCategories
+  getQudemoCategories,
+  debugQudemos
 }; 

@@ -601,8 +601,13 @@ const videoController = {
                     headers: { 'Content-Type': 'application/json' }
                 });
 
+                console.log('🔍 Python API response received:', response.data);
+                
                 if (response.data && response.data.success) {
                     const video_id = response.data.video_id;
+                    console.log('✅ Video processing successful, video_id:', video_id);
+                    
+                    console.log('💾 Inserting into videos table...');
                     
                     // Insert into videos table
                     const { error: videoError } = await supabase
@@ -622,6 +627,8 @@ const videoController = {
                             error: `Video database error: ${videoError.message}`
                         });
                     }
+                    
+                    console.log('✅ Video inserted successfully');
 
                     // Insert into qudemos table
                     const qudemoData = {
@@ -629,7 +636,7 @@ const videoController = {
                         title: `${videoType} Video Demo - ${finalCompanyName}`,
                         description: `AI-powered ${videoType} video demo for ${finalCompanyName}`,
                         video_url: videoUrl,
-                        thumbnail_url: videoController.generateThumbnailUrl(videoUrl),
+                        thumbnail_url: this.generateThumbnailUrl(videoUrl),
                         company_id: company.id,
                         created_by: req.user?.userId || req.user?.id,
                         is_active: true,
