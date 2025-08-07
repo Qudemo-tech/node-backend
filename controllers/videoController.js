@@ -47,7 +47,7 @@ class VideoProcessingService {
             if (!payload.company_name) {
                 throw new Error("Company name is required for video processing");
             }
-            const response = await axios.post(`${this.apiBaseUrl}/process-video/${companyName}`, payload);
+            const response = await axios.post(`${this.apiBaseUrl}/process-video`, payload);
             return {
                 success: true,
                 data: response.data
@@ -287,7 +287,7 @@ const videoController = {
                 });
             }
 
-            // Validate video URL (Loom, Vimeo, or YouTube)
+            // Validate video URL (Loom or YouTube)
             if (!videoUrl.startsWith('http')) {
                 return res.status(400).json({
                     success: false,
@@ -297,13 +297,12 @@ const videoController = {
             
             // Check if it's a supported video platform
             const isLoomVideo = videoUrl.includes('loom.com');
-            const isVimeoVideo = videoUrl.includes('vimeo.com');
             const isYouTubeVideo = videoUrl.includes('youtube.com') || videoUrl.includes('youtu.be');
             
-            if (!isLoomVideo && !isVimeoVideo && !isYouTubeVideo) {
+            if (!isLoomVideo && !isYouTubeVideo) {
                 return res.status(400).json({
                     success: false,
-                    error: 'Invalid video URL. Only Loom, Vimeo, and YouTube videos are supported.'
+                    error: 'Invalid video URL. Only Loom and YouTube videos are supported.'
                 });
             }
 
@@ -322,13 +321,11 @@ const videoController = {
                 });
             }
 
-            const videoType = isLoomVideo ? 'Loom' : isVimeoVideo ? 'Vimeo' : 'YouTube';
-
+            const videoType = isLoomVideo ? 'Loom' : 'YouTube';
 
             const jobData = {
                 videoUrl, companyName, 
                 isLoom: isLoomVideo,
-                isVimeo: isVimeoVideo,
                 isYouTube: isYouTubeVideo,
                 source: source || null, meetingLink: meeting_link || null,
                 userId: req.user?.userId || req.user?.id, timestamp: new Date().toISOString()
@@ -372,7 +369,7 @@ const videoController = {
                 });
             }
 
-            // Validate video URL (Loom or Vimeo)
+            // Validate video URL (Loom or YouTube)
             if (!videoUrl.startsWith('http')) {
                 return res.status(400).json({
                     success: false,
@@ -382,13 +379,12 @@ const videoController = {
             
             // Check if it's a supported video platform
             const isLoomVideo = videoUrl.includes('loom.com');
-            const isVimeoVideo = videoUrl.includes('vimeo.com');
             const isYouTubeVideo = videoUrl.includes('youtube.com') || videoUrl.includes('youtu.be');
             
-            if (!isLoomVideo && !isVimeoVideo && !isYouTubeVideo) {
+            if (!isLoomVideo && !isYouTubeVideo) {
                 return res.status(400).json({
                     success: false,
-                    error: 'Invalid video URL. Only Loom, Vimeo, and YouTube videos are supported.'
+                    error: 'Invalid video URL. Only Loom and YouTube videos are supported.'
                 });
             }
 
@@ -407,14 +403,11 @@ const videoController = {
                 });
             }
 
-            const videoType = isLoomVideo ? 'Loom' : isVimeoVideo ? 'Vimeo' : 'YouTube';
-            
-
+            const videoType = isLoomVideo ? 'Loom' : 'YouTube';
 
             const jobData = {
                 videoUrl, companyName, 
                 isLoom: isLoomVideo,
-                isVimeo: isVimeoVideo,
                 isYouTube: isYouTubeVideo,
                 source: source || null, meetingLink: meeting_link || null,
                 userId: req.user?.userId || req.user?.id, timestamp: new Date().toISOString(),
@@ -513,7 +506,7 @@ const videoController = {
     },
 
     /**
-     * Create videos (QuDemo creation) - Loom, Vimeo, and YouTube videos
+     * Create videos (QuDemo creation) - Loom and YouTube videos
      */
     async createVideos(req, res) {
         try {
@@ -557,7 +550,7 @@ const videoController = {
                 });
             }
 
-            // Validate video URL (Loom or Vimeo)
+            // Validate video URL (Loom or YouTube)
             if (!videoUrl.startsWith('http')) {
                 return res.status(400).json({
                     success: false,
@@ -567,13 +560,12 @@ const videoController = {
             
             // Check if it's a supported video platform
             const isLoomVideo = videoUrl.includes('loom.com');
-            const isVimeoVideo = videoUrl.includes('vimeo.com');
             const isYouTubeVideo = videoUrl.includes('youtube.com') || videoUrl.includes('youtu.be');
             
-            if (!isLoomVideo && !isVimeoVideo && !isYouTubeVideo) {
+            if (!isLoomVideo && !isYouTubeVideo) {
                 return res.status(400).json({
                     success: false,
-                    error: 'Invalid video URL. Only Loom, Vimeo, and YouTube videos are supported.'
+                    error: 'Invalid video URL. Only Loom and YouTube videos are supported.'
                 });
             }
 
@@ -592,14 +584,13 @@ const videoController = {
                 });
             }
 
-            const videoType = isLoomVideo ? 'Loom' : isVimeoVideo ? 'Vimeo' : 'YouTube';
+            const videoType = isLoomVideo ? 'Loom' : 'YouTube';
             console.log(`🎥 Queueing ${videoType} video for: ${finalCompanyName}`);
 
             const jobData = {
                 videoUrl, 
                 companyName: finalCompanyName, 
                 isLoom: isLoomVideo,
-                isVimeo: isVimeoVideo,
                 isYouTube: isYouTubeVideo,
                 source: source || null, 
                 meetingLink: meetingLink || null,

@@ -132,13 +132,7 @@ class AsyncJobQueue extends EventEmitter {
             return `https://img.youtube.com/vi/${ytMatch[1]}/hqdefault.jpg`;
         }
         
-        // Vimeo video thumbnail
-        if (videoUrl.includes('vimeo.com/')) {
-            const videoId = videoUrl.split('vimeo.com/')[1].split('?')[0].split('/')[0];
-            if (videoId) {
-                return `https://vumbnail.com/${videoId}.jpg`;
-            }
-        }
+
         
         // Default placeholder
         return "https://via.placeholder.com/400x200?text=No+Thumbnail";
@@ -350,7 +344,7 @@ class AsyncJobQueue extends EventEmitter {
         const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
         const PYTHON_API_BASE_URL = process.env.PYTHON_API_BASE_URL || 'http://localhost:5001';
         
-        const { videoUrl, companyName, isLoom, source, meetingLink, userId, createQuDemo, buildIndex } = job.data;
+        const { videoUrl, companyName, isLoom, isYouTube, source, meetingLink, userId, createQuDemo, buildIndex } = job.data;
         
         try {
             // Check if Python API is healthy first (with retry logic)
@@ -384,7 +378,6 @@ class AsyncJobQueue extends EventEmitter {
             const payload = {
                 video_url: videoUrl,
                 company_name: companyName,
-                is_loom: isLoom,
                 source: source,
                 meeting_link: meetingLink
             };
@@ -394,7 +387,7 @@ class AsyncJobQueue extends EventEmitter {
                 payload.build_index = buildIndex;
             }
 
-            const response = await axios.post(`${PYTHON_API_BASE_URL}/process-video/${companyName}`, payload, {
+            const response = await axios.post(`${PYTHON_API_BASE_URL}/process-video`, payload, {
                 timeout: 300000, // 5 minutes
                 headers: { 'Content-Type': 'application/json' }
             });
@@ -412,11 +405,12 @@ class AsyncJobQueue extends EventEmitter {
 
             
             // Update progress
+            const videoType = isLoom ? 'Loom' : 'YouTube';
             this.emit('jobProgress', { 
                 queue: 'video', 
                 jobId: job.id, 
                 progress: 50, 
-                message: 'Loom video processed, updating database...' 
+                message: `${videoType} video processed, updating database...` 
             });
 
             // Get company ID from company name
@@ -455,10 +449,11 @@ class AsyncJobQueue extends EventEmitter {
 
             // Insert into qudemos table if this is a QuDemo creation
             if (createQuDemo) {
+                const videoType = isLoom ? 'Loom' : 'YouTube';
                 const qudemoData = {
                     id: video_id,
-                    title: `Loom Video Demo - ${companyName}`,
-                    description: `AI-powered Loom video demo for ${companyName}`,
+                    title: `${videoType} Video Demo - ${companyName}`,
+                    description: `AI-powered ${videoType} video demo for ${companyName}`,
                     video_url: videoUrl,
                     thumbnail_url: this.generateThumbnailUrl(videoUrl), // Use the new helper
                     company_id: company.id,
@@ -485,10 +480,10 @@ class AsyncJobQueue extends EventEmitter {
                 queue: 'video', 
                 jobId: job.id, 
                 progress: 100, 
-                message: 'Loom video processing completed successfully' 
+                message: `${videoType} video processing completed successfully` 
             });
 
-            console.log(`🎉 Video processing completed successfully: ${videoUrl}`);
+            console.log(`🎉 ${videoType} video processing completed successfully: ${videoUrl}`);
             return { video_id, status: 'completed' };
             
         } catch (error) {
