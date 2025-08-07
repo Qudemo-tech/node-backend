@@ -416,6 +416,7 @@ class AsyncJobQueue extends EventEmitter {
             });
 
             // Get company ID from company name
+            console.log(`🔍 Looking up company: ${companyName}`);
             const { data: company, error: companyError } = await supabase
                 .from('companies')
                 .select('id')
@@ -423,8 +424,10 @@ class AsyncJobQueue extends EventEmitter {
                 .single();
 
             if (companyError || !company) {
+                console.error(`❌ Company lookup failed:`, companyError);
                 throw new Error(`Company not found: ${companyName}`);
             }
+            console.log(`✅ Found company: ${company.id}`);
 
             // Save video data to database
             const videoData = {
@@ -438,6 +441,7 @@ class AsyncJobQueue extends EventEmitter {
                 created_at: new Date().toISOString()
             };
 
+            console.log(`💾 Saving video to database:`, videoData);
             const { error: videoError } = await supabase
                 .from('videos')
                 .insert(videoData);
@@ -446,10 +450,12 @@ class AsyncJobQueue extends EventEmitter {
                 console.error(`❌ Video insert error:`, videoError);
                 throw new Error(`Database error: ${videoError.message}`);
             }
+            console.log(`✅ Video saved to database successfully`);
 
 
 
             // Insert into qudemos table if this is a QuDemo creation
+            console.log(`🔍 createQuDemo flag: ${createQuDemo}`);
             if (createQuDemo) {
                 const videoType = isLoom ? 'Loom' : 'YouTube';
                 const qudemoData = {
@@ -466,6 +472,7 @@ class AsyncJobQueue extends EventEmitter {
                     video_name: video_id
                 };
 
+                console.log(`💾 Saving qudemo to database:`, qudemoData);
                 const { error: qudemoError } = await supabase
                     .from('qudemos')
                     .insert(qudemoData);
@@ -476,6 +483,8 @@ class AsyncJobQueue extends EventEmitter {
                 }
 
                 console.log(`✅ Qudemo inserted successfully: ${video_id}`);
+            } else {
+                console.log(`⚠️ createQuDemo is false, skipping qudemo insert`);
             }
 
             this.emit('jobProgress', { 
