@@ -14,6 +14,9 @@ router.post('/emergency-clear', auth.authenticateToken, queueController.emergenc
 // Queue monitoring routes
 router.get('/monitor', queueController.monitorQueues);
 
+// Emergency clear endpoint (public, no auth required)
+router.post('/emergency-clear-public', queueController.emergencyClear);
+
 // Job management routes (protected)
 router.get('/jobs/:queueType/:jobId', auth.authenticateToken, queueController.getJobDetails);
 router.post('/jobs/:queueType/retry-failed', auth.authenticateToken, queueController.retryFailedJobs);
