@@ -1,18 +1,10 @@
 services:
-  # Node.js Backend for PoToken Service
+  # Node.js Backend for API Gateway
   - type: web
     name: qudemo-node-backend
     env: node
     plan: starter
-    buildCommand: |
-      npm install
-      apt-get update
-      apt-get install -y curl gnupg
-      echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" | tee -a /etc/apt/sources.list.d/google-cloud-sdk.list
-      curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | apt-key --keyring /usr/share/keyrings/cloud.google.gpg add -
-      apt-get update && apt-get install -y google-cloud-cli
-      apt-get install -y yt-dlp
-      chmod +x /usr/bin/yt-dlp
+    buildCommand: npm install
     startCommand: npm start
     envVars:
       - key: NODE_ENV
@@ -29,15 +21,9 @@ services:
         sync: false
       - key: OPENAI_API_KEY
         sync: false
-      - key: YOUTUBE_OAUTH_TOKEN
+      - key: GEMINI_API_KEY
         sync: false
-      - key: GCP_PROJECT_ID
-        sync: false
-      - key: GCP_VM_NAME
-        sync: false
-      - key: GCP_VM_ZONE
-        sync: false
-      - key: GCP_VM_USER
+      - key: PINECONE_API_KEY
         sync: false
     healthCheckPath: /health
     autoDeploy: true
@@ -45,7 +31,7 @@ services:
       minInstances: 1
       maxInstances: 2
 
-  # Python Backend for Video Processing with PoToken
+  # Python Backend for Video Processing with Gemini
   - type: web
     name: qudemo-python-backend
     env: python
@@ -67,11 +53,11 @@ services:
         sync: false
       - key: OPENAI_API_KEY
         sync: false
+      - key: GEMINI_API_KEY
+        sync: false
       - key: PINECONE_API_KEY
         sync: false
       - key: PINECONE_INDEX
-        sync: false
-      - key: YOUTUBE_OAUTH_TOKEN
         sync: false
     healthCheckPath: /health
     autoDeploy: true
@@ -81,4 +67,4 @@ services:
     disk:
       name: video-cache
       mountPath: /tmp
-      sizeGB: 10 
+      sizeGB: 5 

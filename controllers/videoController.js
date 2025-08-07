@@ -61,14 +61,14 @@ class VideoProcessingService {
     }
 
     /**
-     * Build FAISS index from video transcript chunks
+     * Build vector index from video transcript chunks
      * @param {Array} newChunks - Optional additional chunks to include
      * @param {string} companyName - Company name for bucket routing
      */
-    async buildFaissIndex(newChunks = null, companyName = null) {
+    async buildVectorIndex(newChunks = null, companyName = null) {
         try {
             if (!companyName) {
-                throw new Error("Company name is required for FAISS index building");
+                throw new Error("Company name is required for vector index building");
             }
 
             const payload = {
@@ -148,13 +148,13 @@ class VideoProcessingService {
     }
 
     /**
-     * Rebuild FAISS index for a company
+     * Rebuild vector index for a company
      * @param {string} companyName - Company name for bucket routing
      */
-    async rebuildFaissIndex(companyName = null) {
+    async rebuildVectorIndex(companyName = null) {
         try {
             if (!companyName) {
-                throw new Error("Company name is required for FAISS index rebuilding");
+                throw new Error("Company name is required for vector index rebuilding");
             }
 
             const payload = {

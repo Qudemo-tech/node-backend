@@ -492,7 +492,7 @@ class AsyncJobQueue extends EventEmitter {
             return { video_id, status: 'completed' };
             
         } catch (error) {
-            // Check if this is a Vimeo restriction error from the Python API response
+            // Check if this is a video processing error from the Python API response
             let errorMessage = error.message;
             
             // If it's an axios error with response data, check the detail field
@@ -500,28 +500,7 @@ class AsyncJobQueue extends EventEmitter {
                 errorMessage = error.response.data.detail;
             }
             
-            // Check if this is a Vimeo restriction error that should not be retried
-            const nonRetryableVimeoErrors = [
-                'This Vimeo video has download restrictions',
-                'Vimeo video has download restrictions',
-                'download restrictions',
-                'private, password-protected',
-                'special access requirements'
-            ];
-            
-            const isVimeoRestrictionError = nonRetryableVimeoErrors.some(errType => 
-                errorMessage.includes(errType)
-            );
-            
-            if (isVimeoRestrictionError) {
-                // Create a special error that will be recognized as non-retryable
-                const restrictionError = new Error(`Vimeo restriction error: ${errorMessage}`);
-                restrictionError.isVimeoRestriction = true;
-                console.error(`❌ Vimeo video has download restrictions (non-retryable): ${errorMessage}`);
-                throw restrictionError;
-            }
-            
-            console.error(`❌ Loom video processing failed for job ${job.id}:`, errorMessage);
+            console.error(`❌ Video processing failed for job ${job.id}:`, errorMessage);
             throw error;
         }
     }
@@ -598,92 +577,56 @@ class AsyncJobQueue extends EventEmitter {
             'Python API is not available:',
             'No response data from Python API',
             'No video_id returned from Python API',
-            'This Vimeo video has download restrictions',
-            'Vimeo video has download restrictions',
-            'download restrictions',
-            'private, password-protected',
-            'special access requirements',
-            'Vimeo restriction error:',
-            'Sign in to confirm you\'re not a bot',
-            'Unable to download API page: HTTP Error 401: Unauthorized',
-            'Failed to extract any player response',
-            'HTTP Error 410: Gone',
-            'All methods failed',
-            'PoToken video download failed',
-            'yt-dlp failed with code 1',
-            'ERROR: [youtube]',
-            'bot detection',
-            'access denied',
-            'restricted access',
-            'video unavailable',
-            'private video',
-            'deleted video',
-            'copyright strike',
-            'geographic restriction',
-            // Additional YouTube-specific errors
+            'Gemini API error:',
+            'Gemini transcription failed',
+            'Video processing failed',
+            'Video not accessible',
+            'Video is private',
+            'Video is deleted',
+            'Video is restricted',
+            'Video is blocked',
+            'Video is unavailable',
+            'Video is not available',
+            'Video is not accessible',
+            'Video is not public',
+            'Video is not found',
+            'Video does not exist',
+            'Video has been removed',
+            'Video has been deleted',
+            'Video has been blocked',
+            'Video has been restricted',
+            'Video has been made private',
+            'Video has been made unavailable',
+            'Video has been made inaccessible',
+            'Video has been made not public',
+            'Video has been made not found',
+            'Video has been made not exist',
+            'Video has been made removed',
+            'Video has been made deleted',
+            'Video has been made blocked',
+            'Video has been made restricted',
             'HTTP Error 401: Unauthorized',
             'HTTP Error 403: Forbidden',
             'HTTP Error 404: Not Found',
             'HTTP Error 410: Gone',
             'HTTP Error 502: Bad Gateway',
             'HTTP Error 503: Service Unavailable',
-            'Video blocked by YouTube bot detection',
-            'Video requires authentication',
-            'Video extraction failed',
-            'Video no longer available',
-            'Video access forbidden',
-            'Video service temporarily unavailable',
-            'Video encoding error',
-            'All download methods failed',
-            'Both Node.js and Python yt-dlp failed',
-            'could not find chrome cookies database',
-            'cookies database',
-            'chrome cookies',
-            'OAuth token appears to be expired',
-            'OAuth token expired',
-            'invalid OAuth token',
             'authentication failed',
             'unauthorized access',
             'forbidden access',
-            'video is private',
-            'video is deleted',
-            'video is restricted',
-            'video is blocked',
-            'video is unavailable',
-            'video is not available',
-            'video is not accessible',
-            'video is not public',
-            'video is not found',
-            'video does not exist',
-            'video has been removed',
-            'video has been deleted',
-            'video has been blocked',
-            'video has been restricted',
-            'video has been made private',
-            'video has been made unavailable',
-            'video has been made inaccessible',
-            'video has been made not public',
-            'video has been made not found',
-            'video has been made not exist',
-            'video has been made removed',
-            'video has been made deleted',
-            'video has been made blocked',
-            'video has been made restricted'
+            'timed out',
+            'timeout'
         ];
         
         const isNonRetryable = nonRetryableErrors.some(errType => 
             error.message.includes(errType)
-        ) || error.isVimeoRestriction === true || 
+        ) || 
         // Additional checks for comprehensive error patterns
-        error.message.includes('All methods failed') ||
-        error.message.includes('Both Node.js and Python yt-dlp failed') ||
-        error.message.includes('All download methods failed') ||
-        error.message.includes('yt-dlp failed with code 1') ||
-        error.message.includes('ERROR: [youtube]') ||
+        error.message.includes('Gemini API error') ||
+        error.message.includes('Gemini transcription failed') ||
+        error.message.includes('Video processing failed') ||
         error.message.includes('HTTP Error 4') ||
         error.message.includes('HTTP Error 5') ||
-        error.message.includes('Sign in to confirm you\'re not a bot') ||
-        error.message.includes('bot detection') ||
         error.message.includes('authentication') ||
         error.message.includes('unauthorized') ||
         error.message.includes('forbidden') ||
@@ -716,8 +659,7 @@ class AsyncJobQueue extends EventEmitter {
         error.message.includes('has been made blocked') ||
         error.message.includes('has been made restricted') ||
         error.message.includes('timed out') ||
-        error.message.includes('timeout') ||
-        error.message.includes('PoToken download timed out');
+        error.message.includes('timeout');
         
         if (isNonRetryable) {
             job.status = 'failed';

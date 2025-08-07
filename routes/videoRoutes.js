@@ -90,14 +90,13 @@ const createVideosSchema = Joi.object({
         return helpers.error('any.invalid', { message: 'Company ID or company name is required' });
     }
     
-    // Validate that video URL is a Loom, Vimeo, or YouTube URL
+    // Validate that video URL is a Loom or YouTube URL
     const videoUrl = value.video_url || value.videoUrl || value.url;
     const isLoomVideo = videoUrl.includes('loom.com');
-    const isVimeoVideo = videoUrl.includes('vimeo.com');
     const isYouTubeVideo = videoUrl.includes('youtube.com') || videoUrl.includes('youtu.be');
     
-    if (!isLoomVideo && !isVimeoVideo && !isYouTubeVideo) {
-        return helpers.error('any.invalid', { message: 'Only Loom, Vimeo, and YouTube video URLs are supported' });
+    if (!isLoomVideo && !isYouTubeVideo) {
+        return helpers.error('any.invalid', { message: 'Only Loom and YouTube video URLs are supported' });
     }
     
     return value;
@@ -115,21 +114,21 @@ router.get('/health', videoController.checkHealth);
 
 /**
  * @route   POST /api/video/process
- * @desc    Process a Loom or Vimeo video (download, transcribe, upload to GCS)
+ * @desc    Process a Loom or YouTube video (transcribe, store in Pinecone)
  * @access  Public
  */
 router.post('/process', validateRequest(processVideoSchema), videoController.processVideo);
 
 /**
  * @route   POST /api/video/process-and-index
- * @desc    Process Loom or Vimeo video and build FAISS index
+ * @desc    Process Loom or YouTube video and store in Pinecone
  * @access  Public
  */
 router.post('/process-and-index', validateRequest(processAndIndexSchema), videoController.processAndIndex);
 
 /**
  * @route   POST /api/video/build-index
- * @desc    Build FAISS index from video transcript chunks
+ * @desc    Build vector index from video transcript chunks
  * @access  Public
  */
 router.post('/build-index', validateRequest(buildIndexSchema), videoController.buildIndex);
@@ -157,7 +156,7 @@ router.get('/test-auth', auth.authenticateToken, videoController.testAuth);
 
 /**
  * @route   POST /api/videos
- * @desc    Submit Loom or Vimeo video URLs for processing (QuDemo creation)
+ * @desc    Submit Loom or YouTube video URLs for processing (QuDemo creation)
  * @access  Private
  */
 router.post('/videos', auth.authenticateToken, validateRequest(createVideosSchema), videoController.createVideos);
@@ -209,7 +208,7 @@ router.get('/test-auth-simple', auth.authenticateToken, (req, res) => {
 
 /**
  * @route   POST /api/video/rebuild-index
- * @desc    Rebuild FAISS index from all transcript chunks
+ * @desc    Rebuild vector index from all transcript chunks
  * @access  Public
  */
 router.post('/rebuild-index', videoController.rebuildIndex);
@@ -245,14 +244,14 @@ router.post('/:companyName/process', videoController.processVideo);
 
 /**
  * @route   POST /api/video/:companyName/process-and-index
- * @desc    Process Loom video and build FAISS index for specific company
+ * @desc    Process Loom or YouTube video and store in Pinecone for specific company
  * @access  Public
  */
 router.post('/:companyName/process-and-index', videoController.processAndIndex);
 
 /**
  * @route   POST /api/video/:companyName/build-index
- * @desc    Build FAISS index for specific company
+ * @desc    Build vector index for specific company
  * @access  Public
  */
 router.post('/:companyName/build-index', validateRequest(buildIndexSchema), videoController.buildIndex);
@@ -266,7 +265,7 @@ router.post('/:companyName/cleanup', videoController.cleanup);
 
 /**
  * @route   POST /api/video/:companyName/rebuild-index
- * @desc    Rebuild FAISS index for specific company
+ * @desc    Rebuild vector index for specific company
  * @access  Public
  */
 router.post('/:companyName/rebuild-index', videoController.rebuildIndex);
