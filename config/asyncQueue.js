@@ -343,6 +343,8 @@ class AsyncJobQueue extends EventEmitter {
         
         const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
         const PYTHON_API_BASE_URL = process.env.PYTHON_API_BASE_URL || 'http://localhost:5001';
+        console.log(`🔍 Environment PYTHON_API_BASE_URL: ${process.env.PYTHON_API_BASE_URL}`);
+        console.log(`🔗 Using Python API URL: ${PYTHON_API_BASE_URL}`);
         
         const { videoUrl, companyName, isLoom, isYouTube, source, meetingLink, userId, createQuDemo, buildIndex } = job.data;
         
