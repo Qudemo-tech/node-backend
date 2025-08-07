@@ -629,7 +629,7 @@ const videoController = {
                         title: `${videoType} Video Demo - ${finalCompanyName}`,
                         description: `AI-powered ${videoType} video demo for ${finalCompanyName}`,
                         video_url: videoUrl,
-                        thumbnail_url: this.generateThumbnailUrl(videoUrl),
+                        thumbnail_url: videoController.generateThumbnailUrl(videoUrl),
                         company_id: company.id,
                         created_by: req.user?.userId || req.user?.id,
                         is_active: true,
@@ -673,7 +673,8 @@ const videoController = {
                     });
                 }
             } catch (error) {
-                console.error('❌ Video processing error:', error);
+                console.error('❌ Video processing error:', error.message);
+                console.error('❌ Error stack:', error.stack);
                 
                 // Handle specific error types
                 if (error.response?.status === 429) {
