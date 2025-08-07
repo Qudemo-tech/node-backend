@@ -1,5 +1,6 @@
 const axios = require('axios');
 const { createClient } = require('@supabase/supabase-js');
+const asyncQueue = require('../config/asyncQueue');
 require('dotenv').config();
 const path = require('path');
 
@@ -584,149 +585,51 @@ const videoController = {
             }
 
             const videoType = isLoomVideo ? 'Loom' : 'YouTube';
-            console.log(`🎥 Processing ${videoType} video directly for: ${finalCompanyName}`);
+            console.log(`🎥 Queueing ${videoType} video for: ${finalCompanyName}`);
 
-            // Process video directly without queue
-            const payload = {
-                video_url: videoUrl,
-                company_name: finalCompanyName,
-                source: source || null,
-                meeting_link: meetingLink || null
+            const jobData = {
+                videoUrl, 
+                companyName: finalCompanyName, 
+                isLoom: isLoomVideo,
+                isYouTube: isYouTubeVideo,
+                source: source || null, 
+                meetingLink: meetingLink || null,
+                userId: req.user?.userId || req.user?.id, 
+                timestamp: new Date().toISOString(),
+                createQuDemo: true
             };
 
-            try {
-                // Call Python API directly
-                const response = await axios.post(`${PYTHON_API_BASE_URL}/process-video/${finalCompanyName}`, payload, {
-                    timeout: 300000, // 5 minutes
-                    headers: { 'Content-Type': 'application/json' }
-                });
+            const jobId = await asyncQueue.addVideoJob(jobData, parseInt(process.env.QUEUE_VIDEO_PRIORITY) || 2);
+            
+            const queueStatus = asyncQueue.getQueueStatus();
+            const waitingJobs = queueStatus.video.queued;
 
-                if (response.data && response.data.success) {
-                    const video_id = response.data.video_id;
-                    
-                    // Insert into videos table
-                    const { error: videoError } = await supabase
-                        .from('videos')
-                        .insert({
-                            id: video_id,
-                            company_id: company.id,
-                            user_id: req.user?.userId || req.user?.id,
-                            video_url: videoUrl,
-                            video_name: video_id
-                        });
-
-                    if (videoError) {
-                        console.error(`❌ Video insert error:`, videoError);
-                        return res.status(500).json({
-                            success: false,
-                            error: `Video database error: ${videoError.message}`
-                        });
-                    }
-
-                    // Insert into qudemos table
-                    const qudemoData = {
-                        id: video_id,
-                        title: `${videoType} Video Demo - ${finalCompanyName}`,
-                        description: `AI-powered ${videoType} video demo for ${finalCompanyName}`,
-                        video_url: videoUrl,
-                        thumbnail_url: this.generateThumbnailUrl(videoUrl),
-                        company_id: company.id,
-                        created_by: req.user?.userId || req.user?.id,
-                        is_active: true,
-                        created_at: new Date().toISOString().replace('Z', ''),
-                        updated_at: new Date().toISOString().replace('Z', ''),
-                        video_name: video_id
-                    };
-
-                    const { error: qudemoError } = await supabase
-                        .from('qudemos')
-                        .insert(qudemoData);
-
-                    if (qudemoError) {
-                        console.error(`❌ Qudemo insert error:`, qudemoError);
-                        return res.status(500).json({
-                            success: false,
-                            error: `Qudemo database error: ${qudemoError.message}`
-                        });
-                    }
-
-                    res.json({
-                        success: true,
-                        message: `${videoType} video processed successfully`,
-                        data: {
-                            video_id: video_id,
-                            video_url: videoUrl,
-                            company_name: finalCompanyName,
-                            status: 'completed',
-                            method: response.data.method,
-                            title: response.data.title,
-                            chunks_created: response.data.chunks_created,
-                            vectors_stored: response.data.vectors_stored,
-                            word_count: response.data.word_count
-                        }
-                    });
-                } else {
-                    return res.status(500).json({
-                        success: false,
-                        error: 'Video processing failed',
-                        details: response.data.error || 'Unknown error'
-                    });
+            res.json({
+                success: true,
+                message: `${videoType} video creation queued successfully`,
+                data: {
+                    jobId: jobId,
+                    queuePosition: waitingJobs,
+                    estimatedWaitTime: `${Math.ceil(waitingJobs / 2) * 2}-${Math.ceil(waitingJobs / 2) * 5} minutes`,
+                    status: 'queued'
                 }
-            } catch (error) {
-                console.error('❌ Video processing error:', error);
-                
-                // Handle specific error types
-                if (error.response?.status === 429) {
-                    return res.status(429).json({ 
-                        success: false, 
-                        error: 'Too many requests. Please try again later.',
-                        code: 'RATE_LIMITED'
-                    });
-                }
-                
-                if (error.response?.status === 500) {
-                    return res.status(500).json({ 
-                        success: false, 
-                        error: 'Video processing service error. Please try again.',
-                        code: 'PROCESSING_ERROR'
-                    });
-                }
-                
-                return res.status(500).json({
-                    success: false,
-                    error: 'Video processing failed. Please try again.',
-                    code: 'GENERAL_ERROR'
-                });
-            }
-        } catch (error) {
-            console.error('❌ Video creation error:', error);
-            res.status(500).json({
-                success: false,
-                error: 'An error occurred while creating the video'
             });
-        }
-    },
-
-    // Helper method to generate thumbnail URLs
-    generateThumbnailUrl(videoUrl) {
-        if (!videoUrl) return null;
-        
-        // Loom video thumbnail
-        if (videoUrl.includes('loom.com')) {
-            const loomMatch = videoUrl.match(/loom\.com\/(?:share|embed|recordings)\/([a-zA-Z0-9-]+)/);
-            if (loomMatch && loomMatch[1]) {
-                return `https://cdn.loom.com/sessions/thumbnails/${loomMatch[1]}-with-play.gif`;
+        } catch (error) {
+            console.error('❌ Video creation queue error:', error);
+            
+            // Handle duplicate video errors
+            if (error.message === 'Video is already being processed') {
+                return res.status(409).json({ 
+                    success: false, 
+                    error: 'This video is already being processed. Please wait for it to complete.',
+                    code: 'VIDEO_PROCESSING'
+                });
             }
-        }
-        
-        // YouTube video thumbnail
-        const ytMatch = videoUrl.match(/(?:youtube\.com\/(?:[^\/\n\s]+\/\S+\/|(?:v|e(?:mbed)?|shorts)\/|.*[?&]v=)|youtu\.be\/)([\w-]{11})/);
-        if (ytMatch && ytMatch[1]) {
-            return `https://img.youtube.com/vi/${ytMatch[1]}/maxresdefault.jpg`;
-        }
-        
-        return null;
-    },
+            
+            if (error.message === 'Video has already been processed') {
+                return res.status(409).json({ 
+                    success: false, 
+                    error: 'This video has already been processed. You can ask questions about it now.',
                     code: 'VIDEO_PROCESSED'
                 });
             }
