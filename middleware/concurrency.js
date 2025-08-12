@@ -11,7 +11,9 @@ let activeQARequests = 0;
 
 const checkMemoryUsage = async () => {
     try {
-        const response = await axios.get(`${process.env.PYTHON_API_BASE_URL || 'http://localhost:5001'}/memory-status`, {
+        const pythonUrl = process.env.PYTHON_API_BASE_URL || 'http://localhost:5001';
+        console.log(`🔍 Concurrency - Checking Python API at: ${pythonUrl}`);
+        const response = await axios.get(`${pythonUrl}/memory-status`, {
             timeout: 5000
         });
         return response.data;

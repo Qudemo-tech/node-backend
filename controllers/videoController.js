@@ -12,6 +12,8 @@ const supabase = createClient(
 
 // Configuration
 const PYTHON_API_BASE_URL = process.env.PYTHON_API_BASE_URL || 'http://localhost:5001';
+console.log(`🔍 VideoController - PYTHON_API_BASE_URL: ${process.env.PYTHON_API_BASE_URL}`);
+console.log(`🔗 VideoController - Using URL: ${PYTHON_API_BASE_URL}`);
 
 // Helper function to generate thumbnail URLs
 function generateThumbnailUrl(videoUrl) {
