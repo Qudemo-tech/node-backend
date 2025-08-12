@@ -4,7 +4,7 @@ require('dotenv').config();
 
 const MAX_CONCURRENT_VIDEOS = parseInt(process.env.MAX_CONCURRENT_VIDEO_PROCESSING) || 2;
 const MAX_CONCURRENT_QA = parseInt(process.env.MAX_CONCURRENT_QA_REQUESTS) || 20;
-const MEMORY_THRESHOLD = parseInt(process.env.MEMORY_THRESHOLD_MB) || 1600;
+const MEMORY_THRESHOLD = parseInt(process.env.MEMORY_THRESHOLD_MB) || 3000; // Increased from 1600MB to 3000MB
 
 let activeVideoRequests = 0;
 let activeQARequests = 0;

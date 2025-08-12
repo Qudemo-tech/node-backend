@@ -617,6 +617,9 @@ const videoController = {
             };
 
             try {
+                console.log(`🚀 Starting Python API call for video: ${videoUrl}`);
+                console.log(`📦 Payload:`, JSON.stringify(payload, null, 2));
+                
                 // Call Python API directly
                 const response = await axios.post(`${PYTHON_API_BASE_URL}/process-video/${finalCompanyName}`, payload, {
                     timeout: 300000, // 5 minutes
@@ -658,27 +661,36 @@ const videoController = {
                         id: video_id,
                         title: `${videoType} Video Demo - ${finalCompanyName}`,
                         description: `AI-powered ${videoType} video demo for ${finalCompanyName}`,
-                        video_url: videoUrl,
-                        thumbnail_url: generateThumbnailUrl(videoUrl),
+                        video_url: videoUrl, // Use snake_case for database
+                        thumbnail_url: generateThumbnailUrl(videoUrl), // Use snake_case for database
                         company_id: company.id,
-                        created_by: req.user?.userId || req.user?.id,
+                        created_by: req.user?.userId || req.user?.id || null, // Allow null if no user
                         is_active: true,
-                        created_at: new Date().toISOString().replace('Z', ''),
-                        updated_at: new Date().toISOString().replace('Z', ''),
+                        created_at: new Date().toISOString().replace('T', ' ').replace('Z', ''),
+                        updated_at: new Date().toISOString().replace('T', ' ').replace('Z', ''),
                         video_name: video_id
+                        // Removed knowledgeSources as it doesn't exist in database schema
                     };
 
                     console.log('💾 Inserting qudemo data:', qudemoData);
                     
-                    const { error: qudemoError } = await supabase
+                    const { data: qudemoInsertData, error: qudemoError } = await supabase
                         .from('qudemos')
-                        .insert(qudemoData);
+                        .insert(qudemoData)
+                        .select();
 
                     if (qudemoError) {
                         console.error(`❌ Qudemo insert error:`, qudemoError);
+                        console.error(`❌ Qudemo insert error details:`, {
+                            message: qudemoError.message,
+                            details: qudemoError.details,
+                            hint: qudemoError.hint,
+                            code: qudemoError.code
+                        });
                         return res.status(500).json({
                             success: false,
-                            error: `Qudemo database error: ${qudemoError.message}`
+                            error: `Qudemo database error: ${qudemoError.message}`,
+                            details: qudemoError.details
                         });
                     }
 
@@ -709,6 +721,15 @@ const videoController = {
             } catch (error) {
                 console.error('❌ Video processing error:', error.message);
                 console.error('❌ Error stack:', error.stack);
+                
+                // Log additional error details
+                if (error.response) {
+                    console.error('❌ Python API response error:', error.response.status, error.response.data);
+                } else if (error.request) {
+                    console.error('❌ Python API request error - no response received');
+                } else {
+                    console.error('❌ Python API setup error:', error.message);
+                }
                 
                 // Handle specific error types
                 if (error.response?.status === 429) {

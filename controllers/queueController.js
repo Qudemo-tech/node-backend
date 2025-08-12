@@ -31,7 +31,7 @@ const queueController = {
             const queueStatus = asyncQueue.getQueueStatus();
             const memoryStatus = await checkMemoryUsage();
             
-            const isHealthy = memoryStatus.memoryUsage < (parseInt(process.env.MEMORY_THRESHOLD_MB) || 1600);
+            const isHealthy = memoryStatus.memoryUsage < (parseInt(process.env.MEMORY_THRESHOLD_MB) || 3000); // Increased from 1600MB to 3000MB
             
             res.json({
                 success: true,

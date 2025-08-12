@@ -7,7 +7,7 @@ const qudemoCreationSchema = Joi.object({
   videoUrl: Joi.string().uri().required(),
   thumbnailUrl: Joi.string().uri().optional(),
   duration: Joi.string().pattern(/^\d{1,2}:\d{2}$/).optional(),
-  knowledgeSources: Joi.array().items(Joi.string().uri()).min(1).required(),
+  knowledgeSources: Joi.array().items(Joi.string().uri()).optional(),
   meetingLink: Joi.string().uri().optional(),
   isActive: Joi.boolean().default(true),
   tags: Joi.array().items(Joi.string().max(50)).optional(),

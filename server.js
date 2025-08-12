@@ -180,7 +180,7 @@ app.listen(PORT, () => {
     console.log(`⚡ Concurrency settings:`);
     console.log(`   - Max concurrent videos: ${process.env.MAX_CONCURRENT_VIDEO_PROCESSING || 2}`);
     console.log(`   - Max concurrent QA: ${process.env.MAX_CONCURRENT_QA_REQUESTS || 20}`);
-    console.log(`   - Memory threshold: ${process.env.MEMORY_THRESHOLD_MB || 1600}MB`);
+    console.log(`   - Memory threshold: ${process.env.MEMORY_THRESHOLD_MB || 3000}MB`);
     console.log(`🎯 Environment: ${process.env.NODE_ENV || 'development'}`);
     console.log(`🌐 CORS Origins: ${allowedOrigins.join(', ')}`);
 });
