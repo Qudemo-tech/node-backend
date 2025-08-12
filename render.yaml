@@ -12,7 +12,7 @@ services:
       - key: PORT
         value: 5000
       - key: PYTHON_API_BASE_URL
-        value: https://qudemo-python-backend.onrender.com
+        value: https://python-rpr2.onrender.com
       - key: DATABASE_URL
         sync: false
       - key: SUPABASE_URL
