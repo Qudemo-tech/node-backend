@@ -15,6 +15,9 @@ const PYTHON_API_BASE_URL = process.env.PYTHON_API_BASE_URL || 'http://localhost
 console.log(`🔍 VideoController - PYTHON_API_BASE_URL: ${process.env.PYTHON_API_BASE_URL}`);
 console.log(`🔗 VideoController - Using URL: ${PYTHON_API_BASE_URL}`);
 
+// Add timeout configuration
+const PYTHON_API_TIMEOUT = parseInt(process.env.PYTHON_API_TIMEOUT) || 300000; // 5 minutes default
+
 // Helper function to generate thumbnail URLs
 function generateThumbnailUrl(videoUrl) {
     if (!videoUrl) return null;
@@ -624,7 +627,7 @@ const videoController = {
                 
                 // Call Python API directly
                 const response = await axios.post(`${PYTHON_API_BASE_URL}/process-video/${finalCompanyName}`, payload, {
-                    timeout: 300000, // 5 minutes
+                    timeout: PYTHON_API_TIMEOUT,
                     headers: { 'Content-Type': 'application/json' }
                 });
 
@@ -734,6 +737,15 @@ const videoController = {
                 }
                 
                 // Handle specific error types
+                if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
+                    return res.status(408).json({ 
+                        success: false, 
+                        error: 'Video processing timed out. Please try again.',
+                        code: 'TIMEOUT',
+                        details: `Request timed out after ${PYTHON_API_TIMEOUT/1000} seconds`
+                    });
+                }
+                
                 if (error.response?.status === 429) {
                     return res.status(429).json({ 
                         success: false, 
@@ -758,7 +770,7 @@ const videoController = {
             }
         } catch (error) {
             console.error('❌ Video creation error:', error);
-            res.status(500).json({
+            return res.status(500).json({
                 success: false,
                 error: 'An error occurred while creating the video'
             });
