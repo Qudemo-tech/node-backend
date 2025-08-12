@@ -411,15 +411,10 @@ class AsyncJobQueue extends EventEmitter {
 
             console.log(`📋 Python API Response:`, response.data);
             
-            // Extract video_id from response
-            const video_id = response.data.video_id;
+            // Generate video_id since Python API doesn't return one
+            const video_id = uuidv4();
             
-            if (!video_id) {
-                console.error(`❌ No video_id in response:`, response.data);
-                throw new Error('No video_id returned from Python API');
-            }
-            
-            console.log(`✅ Extracted video_id: ${video_id}`);
+            console.log(`✅ Generated video_id: ${video_id}`);
 
 
             
