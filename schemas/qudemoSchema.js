@@ -1,5 +1,26 @@
 const Joi = require('joi');
 
+// Knowledge source processing schema
+const processWebsiteSchema = Joi.object({
+  companyName: Joi.string().required(),
+  websiteUrl: Joi.string().uri().required().messages({
+    'string.uri': 'websiteUrl must be a valid URL',
+    'any.required': 'websiteUrl is required'
+  })
+});
+
+const processDocumentSchema = Joi.object({
+  companyName: Joi.string().required()
+});
+
+const askEnhancedQuestionSchema = Joi.object({
+  companyName: Joi.string().required(),
+  question: Joi.string().min(1).required().messages({
+    'string.min': 'Question must not be empty',
+    'any.required': 'Question is required'
+  })
+});
+
 // Qudemo creation schema
 const qudemoCreationSchema = Joi.object({
   title: Joi.string().min(3).max(200).required(),
@@ -43,5 +64,8 @@ const qudemoSearchSchema = Joi.object({
 module.exports = {
   qudemoCreationSchema,
   qudemoUpdateSchema,
-  qudemoSearchSchema
+  qudemoSearchSchema,
+  processWebsiteSchema,
+  processDocumentSchema,
+  askEnhancedQuestionSchema
 }; 

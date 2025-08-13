@@ -671,8 +671,8 @@ const videoController = {
                         company_id: company.id,
                         created_by: req.user?.userId || req.user?.id || null, // Allow null if no user
                         is_active: true,
-                        created_at: new Date().toISOString().replace('T', ' ').replace('Z', ''),
-                        updated_at: new Date().toISOString().replace('T', ' ').replace('Z', ''),
+                        created_at: new Date().toISOString(),
+                        updated_at: new Date().toISOString(),
                         video_name: video_id
                         // Removed knowledgeSources as it doesn't exist in database schema
                     };
@@ -700,6 +700,31 @@ const videoController = {
                     }
 
                     console.log('✅ Qudemo inserted successfully');
+
+                    // Store video metadata in knowledge_sources table
+                    const knowledgeSourceData = {
+                        id: uuidv4(),
+                        company_name: finalCompanyName.toLowerCase(),
+                        source_type: 'video',
+                        source_url: videoUrl,
+                        title: `${videoType} Video: ${response.data.title || video_id}`,
+                        description: `Processed ${videoType} video for ${finalCompanyName}`,
+                        status: 'processed',
+                        processed_at: new Date().toISOString(),
+                        created_at: new Date().toISOString(),
+                        updated_at: new Date().toISOString()
+                    };
+
+                    const { error: knowledgeError } = await supabase
+                        .from('knowledge_sources')
+                        .insert([knowledgeSourceData]);
+
+                    if (knowledgeError) {
+                        console.error('❌ Failed to insert video knowledge source metadata:', knowledgeError);
+                        // Don't fail the request, just log the error
+                    } else {
+                        console.log('✅ Video knowledge source metadata stored');
+                    }
 
                     res.json({
                         success: true,
@@ -930,6 +955,106 @@ const videoController = {
             res.status(500).json({
                 success: false,
                 error: 'Failed to upload video'
+            });
+        }
+    },
+
+    /**
+     * Process website knowledge for a company
+     * @deprecated Use /api/knowledge/process-website instead
+     */
+    async processWebsite(req, res) {
+        try {
+            // Redirect to knowledge controller
+            const knowledgeController = require('./knowledgeController');
+            return await knowledgeController.processWebsite(req, res);
+        } catch (error) {
+            console.error('❌ Process website error:', error);
+            res.status(500).json({
+                success: false,
+                error: 'Failed to process website knowledge'
+            });
+        }
+    },
+
+    /**
+     * Process document knowledge for a company
+     * @deprecated Use /api/knowledge/process-document instead
+     */
+    async processDocument(req, res) {
+        try {
+            // Redirect to knowledge controller
+            const knowledgeController = require('./knowledgeController');
+            return await knowledgeController.processDocument(req, res);
+        } catch (error) {
+            console.error('❌ Process document error:', error);
+            res.status(500).json({
+                success: false,
+                error: 'Failed to process document knowledge'
+            });
+        }
+    },
+
+    /**
+     * Ask enhanced question with all knowledge sources
+     */
+    async askEnhancedQuestion(req, res) {
+        try {
+            const { companyName, question } = req.body;
+
+            if (!companyName || !question) {
+                return res.status(400).json({
+                    success: false,
+                    error: 'Company name and question are required'
+                });
+            }
+
+            console.log(`🤖 Enhanced Q&A for ${companyName}: ${question}`);
+
+            const response = await axios.post(
+                `${PYTHON_API_BASE_URL}/ask-enhanced/${companyName}`,
+                { question },
+                { timeout: PYTHON_API_TIMEOUT }
+            );
+
+            if (response.data.success) {
+                res.json({
+                    success: true,
+                    answer: response.data.answer,
+                    sources: response.data.sources,
+                    sourceType: response.data.source_type,
+                    confidence: response.data.confidence,
+                    videoTimestamp: response.data.video_timestamp
+                });
+            } else {
+                res.status(500).json({
+                    success: false,
+                    error: response.data.error || 'Failed to get enhanced answer'
+                });
+            }
+        } catch (error) {
+            console.error('❌ Enhanced Q&A error:', error);
+            res.status(500).json({
+                success: false,
+                error: 'Failed to get enhanced answer'
+            });
+        }
+    },
+
+    /**
+     * Get knowledge summary for a company
+     * @deprecated Use /api/knowledge/summary/:companyName instead
+     */
+    async getKnowledgeSummary(req, res) {
+        try {
+            // Redirect to knowledge controller
+            const knowledgeController = require('./knowledgeController');
+            return await knowledgeController.getKnowledgeSummary(req, res);
+        } catch (error) {
+            console.error('❌ Knowledge summary error:', error);
+            res.status(500).json({
+                success: false,
+                error: 'Failed to get knowledge summary'
             });
         }
     },

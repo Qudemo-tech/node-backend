@@ -15,6 +15,10 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage });
 
+// Memory storage for file uploads (for document processing)
+const memoryStorage = multer.memoryStorage();
+const uploadMemory = multer({ storage: memoryStorage });
+
 // Validation schemas
 const processVideoSchema = Joi.object({
     videoUrl: Joi.string().uri().required().messages({
@@ -22,6 +26,26 @@ const processVideoSchema = Joi.object({
         'any.required': 'videoUrl is required'
     }),
     companyName: Joi.string().optional()
+});
+
+const processWebsiteSchema = Joi.object({
+    companyName: Joi.string().required(),
+    websiteUrl: Joi.string().uri().required().messages({
+        'string.uri': 'websiteUrl must be a valid URL',
+        'any.required': 'websiteUrl is required'
+    })
+});
+
+const processDocumentSchema = Joi.object({
+    companyName: Joi.string().required()
+});
+
+const askEnhancedQuestionSchema = Joi.object({
+    companyName: Joi.string().required(),
+    question: Joi.string().min(1).required().messages({
+        'string.min': 'Question must not be empty',
+        'any.required': 'Question is required'
+    })
 });
 
 const processAndIndexSchema = Joi.object({
@@ -227,6 +251,35 @@ router.post('/ask', videoController.askQuestion);
  */
 router.post('/audit-mappings', videoController.auditVideoMappings);
 
+// Knowledge Processing Routes
+/**
+ * @route   POST /api/video/process-website
+ * @desc    Process website knowledge for a company
+ * @access  Public
+ */
+router.post('/process-website', validateRequest(processWebsiteSchema), videoController.processWebsite);
+
+/**
+ * @route   POST /api/video/process-document
+ * @desc    Process document knowledge for a company
+ * @access  Public
+ */
+router.post('/process-document', uploadMemory.single('file'), validateRequest(processDocumentSchema), videoController.processDocument);
+
+/**
+ * @route   POST /api/video/ask-enhanced
+ * @desc    Ask enhanced question with all knowledge sources
+ * @access  Public
+ */
+router.post('/ask-enhanced', validateRequest(askEnhancedQuestionSchema), videoController.askEnhancedQuestion);
+
+/**
+ * @route   GET /api/video/knowledge-summary/:companyName
+ * @desc    Get knowledge summary for a company
+ * @access  Public
+ */
+router.get('/knowledge-summary/:companyName', videoController.getKnowledgeSummary);
+
 // Company-specific video routes
 /**
  * @route   GET /api/video/:companyName/health
@@ -283,5 +336,34 @@ router.post('/:companyName/ask', videoController.askQuestion);
  * @access  Public
  */
 router.post('/:companyName/audit-mappings', videoController.auditVideoMappings);
+
+// Company-specific Knowledge Processing Routes
+/**
+ * @route   POST /api/video/:companyName/process-website
+ * @desc    Process website knowledge for specific company
+ * @access  Public
+ */
+router.post('/:companyName/process-website', videoController.processWebsite);
+
+/**
+ * @route   POST /api/video/:companyName/process-document
+ * @desc    Process document knowledge for specific company
+ * @access  Public
+ */
+router.post('/:companyName/process-document', uploadMemory.single('file'), videoController.processDocument);
+
+/**
+ * @route   POST /api/video/:companyName/ask-enhanced
+ * @desc    Ask enhanced question for specific company
+ * @access  Public
+ */
+router.post('/:companyName/ask-enhanced', videoController.askEnhancedQuestion);
+
+/**
+ * @route   GET /api/video/:companyName/knowledge-summary
+ * @desc    Get knowledge summary for specific company
+ * @access  Public
+ */
+router.get('/:companyName/knowledge-summary', videoController.getKnowledgeSummary);
 
 module.exports = router; 

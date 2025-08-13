@@ -18,6 +18,7 @@ const helpRoutes = require('./routes/helpRoutes');
 const videoRoutes = require('./routes/videoRoutes');
 const companyRoutes = require('./routes/companyRoutes');
 const queueRoutes = require('./routes/queueRoutes');
+const knowledgeRoutes = require('./routes/knowledgeRoutes');
 // PoToken routes removed - using direct VM access
 
 // Import middleware
@@ -122,6 +123,7 @@ app.use('/api/help', helpRoutes);
 app.use('/api/video', videoConcurrencyControl, requestTimeout(300000), videoRoutes);
 app.use('/api/companies', companyRoutes);
 app.use('/api/queue', queueRoutes);
+app.use('/api/knowledge', knowledgeRoutes);
 // PoToken routes removed - using direct VM access
 
 // 404 handler
