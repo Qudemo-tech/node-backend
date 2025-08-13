@@ -18,6 +18,10 @@ console.log(`🔗 VideoController - Using URL: ${PYTHON_API_BASE_URL}`);
 // Add timeout configuration
 const PYTHON_API_TIMEOUT = parseInt(process.env.PYTHON_API_TIMEOUT) || 300000; // 5 minutes default
 
+// Concurrency control for video processing
+let activeVideoProcessing = 0;
+const MAX_CONCURRENT_VIDEOS = 1; // Sequential processing - only 1 video at a time
+
 // Helper function to generate thumbnail URLs
 function generateThumbnailUrl(videoUrl) {
     if (!videoUrl) return null;
@@ -613,6 +617,23 @@ const videoController = {
             const videoType = isLoomVideo ? 'Loom' : 'YouTube';
             console.log(`🎥 Processing ${videoType} video directly for: ${finalCompanyName}`);
 
+            // Check concurrency limit (sequential processing)
+            if (activeVideoProcessing >= MAX_CONCURRENT_VIDEOS) {
+                console.log(`⚠️ Another video is currently processing (${activeVideoProcessing}/${MAX_CONCURRENT_VIDEOS}). Please wait for current processing to complete.`);
+                return res.status(429).json({
+                    success: false,
+                    error: `Another video is currently being processed. Please wait for the current video to complete before submitting a new one.`,
+                    code: 'CONCURRENCY_LIMIT',
+                    activeProcessing: activeVideoProcessing,
+                    maxConcurrent: MAX_CONCURRENT_VIDEOS,
+                    note: 'Sequential processing mode - one video at a time for optimal performance'
+                });
+            }
+
+            // Increment active processing counter
+            activeVideoProcessing++;
+            console.log(`📊 Active video processing: ${activeVideoProcessing}/${MAX_CONCURRENT_VIDEOS}`);
+
             // Process video directly without queue
             const payload = {
                 video_url: videoUrl,
@@ -625,9 +646,14 @@ const videoController = {
                 console.log(`🚀 Starting Python API call for video: ${videoUrl}`);
                 console.log(`📦 Payload:`, JSON.stringify(payload, null, 2));
                 
-                // Call Python API directly
+                // Call Python API directly with extended timeout for Loom videos
+                const isLoomVideo = videoUrl.includes('loom.com');
+                const timeout = isLoomVideo ? PYTHON_API_TIMEOUT * 3 : PYTHON_API_TIMEOUT; // 15 minutes for Loom, 5 minutes for others
+                
+                console.log(`⏱️ Using timeout: ${timeout/1000/60} minutes for ${isLoomVideo ? 'Loom' : 'other'} video`);
+                
                 const response = await axios.post(`${PYTHON_API_BASE_URL}/process-video/${finalCompanyName}`, payload, {
-                    timeout: PYTHON_API_TIMEOUT,
+                    timeout: timeout,
                     headers: { 'Content-Type': 'application/json' }
                 });
 
@@ -653,6 +679,13 @@ const videoController = {
 
                     if (videoError) {
                         console.error(`❌ Video insert error:`, videoError);
+                        
+                        // Check if response has already been sent
+                        if (res.headersSent) {
+                            console.error('❌ Response already sent, cannot send error response');
+                            return;
+                        }
+                        
                         return res.status(500).json({
                             success: false,
                             error: `Video database error: ${videoError.message}`
@@ -692,6 +725,13 @@ const videoController = {
                             hint: qudemoError.hint,
                             code: qudemoError.code
                         });
+                        
+                        // Check if response has already been sent
+                        if (res.headersSent) {
+                            console.error('❌ Response already sent, cannot send error response');
+                            return;
+                        }
+                        
                         return res.status(500).json({
                             success: false,
                             error: `Qudemo database error: ${qudemoError.message}`,
@@ -726,6 +766,13 @@ const videoController = {
                         console.log('✅ Video knowledge source metadata stored');
                     }
 
+                    // Decrement active processing counter
+                    activeVideoProcessing--;
+                    console.log(`📊 Active video processing: ${activeVideoProcessing}/${MAX_CONCURRENT_VIDEOS}`);
+
+                    // Extract data from the nested result structure
+                    const resultData = response.data.result || response.data;
+                    
                     res.json({
                         success: true,
                         message: `${videoType} video processed successfully`,
@@ -734,14 +781,20 @@ const videoController = {
                             video_url: videoUrl,
                             company_name: finalCompanyName,
                             status: 'completed',
-                            method: response.data.method,
-                            title: response.data.title,
-                            chunks_created: response.data.chunks_created,
-                            vectors_stored: response.data.vectors_stored,
-                            word_count: response.data.word_count
+                            method: resultData.method,
+                            title: resultData.title,
+                            chunks_created: resultData.chunks_created,
+                            vectors_stored: resultData.vectors_stored,
+                            word_count: resultData.word_count
                         }
                     });
                 } else {
+                    // Check if response has already been sent
+                    if (res.headersSent) {
+                        console.error('❌ Response already sent, cannot send error response');
+                        return;
+                    }
+                    
                     return res.status(500).json({
                         success: false,
                         error: 'Video processing failed',
@@ -749,8 +802,18 @@ const videoController = {
                     });
                 }
             } catch (error) {
+                // Decrement active processing counter on error
+                activeVideoProcessing--;
+                console.log(`📊 Active video processing: ${activeVideoProcessing}/${MAX_CONCURRENT_VIDEOS}`);
+                
                 console.error('❌ Video processing error:', error.message);
                 console.error('❌ Error stack:', error.stack);
+                
+                // Check if response has already been sent
+                if (res.headersSent) {
+                    console.error('❌ Response already sent, cannot send error response');
+                    return;
+                }
                 
                 // Log additional error details
                 if (error.response) {
@@ -763,11 +826,16 @@ const videoController = {
                 
                 // Handle specific error types
                 if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
+                    const isLoomVideo = videoUrl.includes('loom.com');
+                    const timeoutMinutes = isLoomVideo ? 15 : 5;
+                    
                     return res.status(408).json({ 
                         success: false, 
-                        error: 'Video processing timed out. Please try again.',
+                        error: `Video processing timed out after ${timeoutMinutes} minutes. Loom videos take longer to process. Please try again.`,
                         code: 'TIMEOUT',
-                        details: `Request timed out after ${PYTHON_API_TIMEOUT/1000} seconds`
+                        details: `Request timed out after ${timeoutMinutes} minutes`,
+                        isLoomVideo: isLoomVideo,
+                        note: 'Sequential processing mode - one video at a time for optimal performance'
                     });
                 }
                 
@@ -794,7 +862,18 @@ const videoController = {
                 });
             }
         } catch (error) {
+            // Decrement active processing counter on error
+            activeVideoProcessing--;
+            console.log(`📊 Active video processing: ${activeVideoProcessing}/${MAX_CONCURRENT_VIDEOS}`);
+            
             console.error('❌ Video creation error:', error);
+            
+            // Check if response has already been sent
+            if (res.headersSent) {
+                console.error('❌ Response already sent, cannot send error response');
+                return;
+            }
+            
             return res.status(500).json({
                 success: false,
                 error: 'An error occurred while creating the video'
