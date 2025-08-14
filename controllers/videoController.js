@@ -659,7 +659,7 @@ const videoController = {
 
                 console.log('🔍 Python API response received:', response.data);
                 
-                if (response.data && response.data.success) {
+                if (response.data && response.data.success && response.data.result) {
                     // Extract video_id from nested response structure or generate one
                     const video_id = response.data.data?.video_id || response.data.video_id || uuidv4();
                     console.log('✅ Video processing successful, video_id:', video_id);
@@ -795,10 +795,19 @@ const videoController = {
                         return;
                     }
                     
+                    // Provide more specific error messages
+                    let errorMessage = 'Video processing failed';
+                    let errorDetails = response.data.error || 'Unknown error';
+                    
+                    if (response.data.success && !response.data.result) {
+                        errorMessage = 'Video processing failed - no transcription generated';
+                        errorDetails = 'The video may not have audio or may be corrupted. Please try a different video.';
+                    }
+                    
                     return res.status(500).json({
                         success: false,
-                        error: 'Video processing failed',
-                        details: response.data.error || 'Unknown error'
+                        error: errorMessage,
+                        details: errorDetails
                     });
                 }
             } catch (error) {
