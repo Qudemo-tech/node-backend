@@ -1155,6 +1155,252 @@ const videoController = {
                 error: 'Authentication test failed'
             });
         }
+    },
+
+    /**
+     * Process multiple videos in batch (sequential processing)
+     */
+    async processVideosBatch(req, res) {
+        try {
+            const { video_urls: videoUrls, company_name: companyName, source, meeting_link: meetingLink } = req.body;
+            
+            if (!videoUrls || !Array.isArray(videoUrls) || videoUrls.length === 0) {
+                return res.status(400).json({
+                    success: false,
+                    error: 'video_urls must be a non-empty array'
+                });
+            }
+            
+            if (videoUrls.length > 10) {
+                return res.status(400).json({
+                    success: false,
+                    error: 'Maximum 10 videos per batch'
+                });
+            }
+            
+            // Validate all video URLs
+            for (const videoUrl of videoUrls) {
+                if (!videoUrl.startsWith('http')) {
+                    return res.status(400).json({
+                        success: false,
+                        error: `Invalid video URL: ${videoUrl}. URL must start with http.`
+                    });
+                }
+            }
+            
+            console.log(`🎬 Starting batch processing for ${companyName}: ${videoUrls.length} videos`);
+            
+            // Get company info
+            const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+            const { data: company, error: companyError } = await supabase
+                .from('companies')
+                .select('id, name')
+                .eq('name', companyName)
+                .single();
+
+            if (companyError || !company) {
+                return res.status(404).json({
+                    success: false,
+                    error: 'Company not found'
+                });
+            }
+            
+            // Initialize batch results
+            const batchResults = {
+                success: true,
+                company_name: companyName,
+                total_videos: videoUrls.length,
+                processed_videos: 0,
+                failed_videos: 0,
+                results: [],
+                start_time: new Date().toISOString(),
+                end_time: null,
+                total_duration: null
+            };
+            
+            const startTime = Date.now();
+            
+            // Process videos sequentially
+            for (let i = 0; i < videoUrls.length; i++) {
+                const videoUrl = videoUrls[i];
+                const videoIndex = i + 1;
+                
+                try {
+                    console.log(`🎬 Processing video ${videoIndex}/${videoUrls.length}: ${videoUrl}`);
+                    
+                    // Check if it's a Loom video
+                    const isLoomVideo = videoUrl.includes('loom.com');
+                    const videoType = isLoomVideo ? 'Loom' : 'YouTube';
+                    
+                    console.log(`🎥 Processing ${videoType} video for: ${companyName}`);
+                    
+                    // Prepare payload for Python API
+                    const payload = {
+                        video_url: videoUrl,
+                        company_name: companyName,
+                        source: source || 'batch',
+                        meeting_link: meetingLink || null
+                    };
+                    
+                    // Call Python API with extended timeout for Loom videos
+                    const timeout = isLoomVideo ? PYTHON_API_TIMEOUT * 3 : PYTHON_API_TIMEOUT; // 15 minutes for Loom, 5 minutes for others
+                    
+                    console.log(`⏱️ Using timeout: ${timeout/1000/60} minutes for ${isLoomVideo ? 'Loom' : 'other'} video`);
+                    
+                    const response = await axios.post(`${PYTHON_API_BASE_URL}/process-videos-batch/${companyName}`, {
+                        video_urls: [videoUrl],
+                        source: source || 'batch',
+                        meeting_link: meetingLink
+                    }, {
+                        timeout: timeout,
+                        headers: { 'Content-Type': 'application/json' }
+                    });
+                    
+                    console.log(`🔍 Python API response for video ${videoIndex}:`, response.data);
+                    
+                    if (response.data && response.data.success && response.data.results && response.data.results.length > 0) {
+                        const videoResult = response.data.results[0];
+                        
+                        if (videoResult.status === 'success') {
+                            // Generate video ID
+                            const video_id = uuidv4();
+                            
+                            // Insert into videos table
+                            const { error: videoError } = await supabase
+                                .from('videos')
+                                .insert({
+                                    id: video_id,
+                                    company_id: company.id,
+                                    user_id: req.user?.userId || req.user?.id,
+                                    video_url: videoUrl,
+                                    video_name: video_id
+                                });
+
+                            if (videoError) {
+                                console.error(`❌ Video insert error for video ${videoIndex}:`, videoError);
+                                throw new Error(`Database error: ${videoError.message}`);
+                            }
+                            
+                            // Insert into qudemos table
+                            const qudemoData = {
+                                id: video_id,
+                                title: `${videoType} Video Demo - ${companyName}`,
+                                description: `AI-powered ${videoType} video demo for ${companyName}`,
+                                video_url: videoUrl,
+                                thumbnail_url: generateThumbnailUrl(videoUrl),
+                                company_id: company.id,
+                                created_by: req.user?.userId || req.user?.id || null,
+                                is_active: true,
+                                created_at: new Date().toISOString(),
+                                updated_at: new Date().toISOString(),
+                                video_name: video_id
+                            };
+                            
+                            const { error: qudemoError } = await supabase
+                                .from('qudemos')
+                                .insert(qudemoData);
+
+                            if (qudemoError) {
+                                console.error(`❌ Qudemo insert error for video ${videoIndex}:`, qudemoError);
+                                throw new Error(`Database error: ${qudemoError.message}`);
+                            }
+                            
+                            // Store video metadata in knowledge_sources table
+                            const knowledgeSourceData = {
+                                id: uuidv4(),
+                                company_name: companyName.toLowerCase(),
+                                source_type: 'video',
+                                source_url: videoUrl,
+                                title: `${videoType} Video: ${videoResult.result?.title || video_id}`,
+                                description: `Processed ${videoType} video for ${companyName}`,
+                                status: 'processed',
+                                processed_at: new Date().toISOString(),
+                                created_at: new Date().toISOString(),
+                                updated_at: new Date().toISOString()
+                            };
+
+                            const { error: knowledgeError } = await supabase
+                                .from('knowledge_sources')
+                                .insert([knowledgeSourceData]);
+
+                            if (knowledgeError) {
+                                console.error(`❌ Knowledge source insert error for video ${videoIndex}:`, knowledgeError);
+                                // Don't fail the request, just log the error
+                            }
+                            
+                            batchResults.processed_videos++;
+                            batchResults.results.push({
+                                video_url: videoUrl,
+                                status: 'success',
+                                video_id: video_id,
+                                result: videoResult.result,
+                                processing_order: videoIndex
+                            });
+                            
+                            console.log(`✅ Video ${videoIndex}/${videoUrls.length} processed and stored successfully`);
+                            
+                        } else {
+                            batchResults.failed_videos++;
+                            batchResults.results.push({
+                                video_url: videoUrl,
+                                status: 'failed',
+                                error: videoResult.error,
+                                processing_order: videoIndex
+                            });
+                            console.error(`❌ Video ${videoIndex}/${videoUrls.length} failed: ${videoResult.error}`);
+                        }
+                    } else {
+                        batchResults.failed_videos++;
+                        batchResults.results.push({
+                            video_url: videoUrl,
+                            status: 'failed',
+                            error: 'Invalid response from Python API',
+                            processing_order: videoIndex
+                        });
+                        console.error(`❌ Video ${videoIndex}/${videoUrls.length} failed: Invalid response from Python API`);
+                    }
+                    
+                } catch (error) {
+                    batchResults.failed_videos++;
+                    batchResults.results.push({
+                        video_url: videoUrl,
+                        status: 'error',
+                        error: error.message || 'Unknown error',
+                        processing_order: videoIndex
+                    });
+                    console.error(`❌ Video ${videoIndex}/${videoUrls.length} error:`, error.message);
+                }
+                
+                // Add small delay between videos for memory cleanup
+                if (i < videoUrls.length - 1) {
+                    await new Promise(resolve => setTimeout(resolve, 2000));
+                }
+            }
+            
+            // Calculate batch completion metrics
+            const endTime = Date.now();
+            const totalDuration = (endTime - startTime) / 1000; // Convert to seconds
+            
+            batchResults.end_time = new Date().toISOString();
+            batchResults.total_duration = totalDuration;
+            batchResults.success = batchResults.failed_videos === 0;
+            
+            // Log batch completion
+            console.log(`🎬 Batch processing completed for ${companyName}:`);
+            console.log(`   ✅ Processed: ${batchResults.processed_videos}/${batchResults.total_videos}`);
+            console.log(`   ❌ Failed: ${batchResults.failed_videos}/${batchResults.total_videos}`);
+            console.log(`   ⏱️ Total duration: ${(totalDuration/60).toFixed(1)} minutes`);
+            
+            res.json(batchResults);
+            
+        } catch (error) {
+            console.error('❌ Batch processing error:', error);
+            res.status(500).json({
+                success: false,
+                error: 'Batch processing failed',
+                details: error.message
+            });
+        }
     }
 };
 

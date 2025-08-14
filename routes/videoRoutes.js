@@ -128,6 +128,36 @@ const createVideosSchema = Joi.object({
     'any.invalid': '{{#message}}'
 });
 
+// Batch processing schema
+const processVideosBatchSchema = Joi.object({
+    video_urls: Joi.array().items(Joi.string().uri()).min(1).max(10).required().messages({
+        'array.min': 'At least one video URL is required',
+        'array.max': 'Maximum 10 videos per batch',
+        'any.required': 'video_urls array is required'
+    }),
+    company_name: Joi.string().required().messages({
+        'any.required': 'Company name is required'
+    }),
+    source: Joi.string().optional(),
+    meeting_link: Joi.string().allow(null, '').optional()
+}).custom((value, helpers) => {
+    // Validate that all video URLs are Loom or YouTube URLs
+    for (const videoUrl of value.video_urls) {
+        const isLoomVideo = videoUrl.includes('loom.com');
+        const isYouTubeVideo = videoUrl.includes('youtube.com') || videoUrl.includes('youtu.be');
+        
+        if (!isLoomVideo && !isYouTubeVideo) {
+            return helpers.error('any.invalid', { 
+                message: `Invalid video URL: ${videoUrl}. Only Loom and YouTube video URLs are supported` 
+            });
+        }
+    }
+    
+    return value;
+}).messages({
+    'any.invalid': '{{#message}}'
+});
+
 // Global video routes (default bucket)
 /**
  * @route   GET /api/video/health
@@ -142,6 +172,13 @@ router.get('/health', videoController.checkHealth);
  * @access  Public
  */
 router.post('/process', validateRequest(processVideoSchema), videoController.processVideo);
+
+/**
+ * @route   POST /api/video/process-batch
+ * @desc    Process multiple videos in batch (sequential processing)
+ * @access  Public
+ */
+router.post('/process-batch', validateRequest(processVideosBatchSchema), videoController.processVideosBatch);
 
 /**
  * @route   POST /api/video/process-and-index
