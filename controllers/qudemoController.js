@@ -88,20 +88,20 @@ const getQudemos = async (req, res) => {
       return res.status(400).json({ error: error.message });
     }
 
-    console.log('✅ getQudemos returning data:', data?.slice(0, 2)); // Log first 2 items
-
-    res.json({ 
-      success: true, 
-      data, 
+    console.log('✅ getQudemos returning data:', data?.slice(0, 2));
+    
+    res.json({
+      success: true,
+      data: data || [],
       pagination: {
         page: pageNum,
         limit: limitNum,
-        total: count || data.length,
-        pages: Math.ceil((count || data.length) / limitNum)
+        total: count || 0,
+        pages: Math.ceil((count || 0) / limitNum)
       }
     });
   } catch (error) {
-    console.error('Error fetching qudemos:', error);
+    console.error('❌ getQudemos error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 };

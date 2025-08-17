@@ -2,7 +2,7 @@
 const express = require('express');
 const router = express.Router();
 const companyController = require('../controllers/companyController');
-const { validate } = require('../middleware/validation');
+const { validate, validateParams } = require('../middleware/validation');
 const auth = require('../middleware/auth'); // Import auth middleware
 const { 
     createCompanySchema, 
@@ -67,7 +67,7 @@ router.put('/:companyId', auth.authenticateToken, validate(updateCompanySchema),
  * @desc    Delete company (soft delete)
  * @access  Private
  */
-router.delete('/:companyId', auth.authenticateToken, validate(companyIdSchema, 'params'), companyController.deleteCompany);
+router.delete('/:companyId', auth.authenticateToken, validateParams(companyIdSchema, 'params'), companyController.deleteCompany);
 
 /**
  * @route   GET /api/companies/:companyId/stats

@@ -352,13 +352,93 @@ const videoController = {
             }
 
             const videoType = isLoomVideo ? 'Loom' : 'YouTube';
+            const video_id = uuidv4();
+
+            // Create initial entries with 'processing' status
+            console.log('💾 Creating initial video entries with processing status...');
+            
+            // Insert into videos table with processing status
+            const { error: videoError } = await supabase
+                .from('videos')
+                .insert({
+                    id: video_id,
+                    company_id: company.id,
+                    user_id: req.user?.userId || req.user?.id,
+                    video_url: videoUrl,
+                    video_name: video_id,
+                    status: 'processing'
+                });
+
+            if (videoError) {
+                console.error(`❌ Video insert error:`, videoError);
+                return res.status(500).json({
+                    success: false,
+                    error: `Video database error: ${videoError.message}`
+                });
+            }
+
+            // Insert into qudemos table with processing status
+            const qudemoData = {
+                id: video_id,
+                title: `${videoType} Video Demo - ${companyName}`,
+                description: `AI-powered ${videoType} video demo for ${companyName}`,
+                video_url: videoUrl,
+                thumbnail_url: generateThumbnailUrl(videoUrl),
+                company_id: company.id,
+                created_by: req.user?.userId || req.user?.id || null,
+                is_active: true,
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+                video_name: video_id
+            };
+
+            const { error: qudemoError } = await supabase
+                .from('qudemos')
+                .insert(qudemoData);
+
+            if (qudemoError) {
+                console.error(`❌ Qudemo insert error:`, qudemoError);
+                return res.status(500).json({
+                    success: false,
+                    error: `Qudemo database error: ${qudemoError.message}`
+                });
+            }
+
+            // Store video metadata in knowledge_sources table with processing status
+            const knowledgeSourceData = {
+                id: uuidv4(),
+                company_name: companyName.toLowerCase(),
+                source_type: 'video',
+                source_url: videoUrl,
+                title: `${videoType} Video: ${video_id}`,
+                description: `Processing ${videoType} video for ${companyName}`,
+                status: 'processing',
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString()
+            };
+
+            const { error: knowledgeError } = await supabase
+                .from('knowledge_sources')
+                .insert(knowledgeSourceData);
+
+            if (knowledgeError) {
+                console.error(`❌ Knowledge source insert error:`, knowledgeError);
+                // Don't fail the request for this error, just log it
+            }
+
+            console.log('✅ Initial video entries created with processing status');
 
             const jobData = {
-                videoUrl, companyName, 
+                videoUrl, 
+                companyName, 
+                video_id,
                 isLoom: isLoomVideo,
                 isYouTube: isYouTubeVideo,
-                source: source || null, meetingLink: meeting_link || null,
-                userId: req.user?.userId || req.user?.id, timestamp: new Date().toISOString()
+                source: source || null, 
+                meetingLink: meeting_link || null,
+                userId: req.user?.userId || req.user?.id, 
+                timestamp: new Date().toISOString(),
+                buildIndex: true
             };
 
             const jobId = await asyncQueue.addVideoJob(jobData, parseInt(process.env.QUEUE_VIDEO_PRIORITY) || 2);
@@ -371,6 +451,7 @@ const videoController = {
                 message: `${videoType} video processing queued successfully`,
                 data: {
                     jobId: jobId,
+                    video_id: video_id,
                     queuePosition: waitingJobs,
                     estimatedWaitTime: `${Math.ceil(waitingJobs / 2) * 2}-${Math.ceil(waitingJobs / 2) * 5} minutes`,
                     status: 'queued'

@@ -280,16 +280,17 @@ const companyController = {
     },
 
     /**
-     * Delete company (soft delete)
+     * Delete company and all associated data (hard delete)
      */
     async deleteCompany(req, res) {
         try {
             const { companyId } = req.params;
+            console.log(`🗑️ Starting comprehensive deletion for company ID: ${companyId}`);
 
             // Get company details first
             const { data: company, error: fetchError } = await supabase
                 .from('companies')
-                .select('name')
+                .select('id, name, display_name')
                 .eq('id', companyId)
                 .single();
 
@@ -306,37 +307,177 @@ const companyController = {
                 });
             }
 
-            // Soft delete in database
-            const { error: updateError } = await supabase
-                .from('companies')
-                .update({
-                    is_active: false,
-                    deleted_at: new Date().toISOString()
-                })
-                .eq('id', companyId);
+            console.log(`🗑️ Found company: ${company.name} (${company.display_name})`);
 
-            if (updateError) {
+            // Step 1: Delete all data from Supabase in the correct order
+            console.log('🗑️ Step 1: Deleting data from Supabase...');
+            
+            const deletionSteps = [
+                {
+                    table: 'user_interaction',
+                    description: 'User interactions',
+                    condition: { company_id: companyId }
+                },
+                {
+                    table: 'knowledge_sources',
+                    description: 'Knowledge sources',
+                    condition: { company_id: companyId }
+                },
+                {
+                    table: 'qudemos',
+                    description: 'Video demos',
+                    condition: { company_id: companyId }
+                },
+                {
+                    table: 'videos',
+                    description: 'Videos',
+                    condition: { company_id: companyId }
+                },
+                {
+                    table: 'company_leads',
+                    description: 'Company leads',
+                    condition: { company_id: companyId }
+                },
+                {
+                    table: 'user_companies',
+                    description: 'User company associations',
+                    condition: { company_id: companyId }
+                }
+            ];
+
+            for (const step of deletionSteps) {
+                try {
+                    console.log(`🗑️ Deleting ${step.description}...`);
+                    const { error: deleteError } = await supabase
+                        .from(step.table)
+                        .delete()
+                        .match(step.condition);
+
+                    if (deleteError) {
+                        // Check if it's a "table doesn't exist" error
+                        if (deleteError.message && deleteError.message.includes('does not exist')) {
+                            console.log(`⚠️ Table '${step.table}' does not exist, skipping...`);
+                            continue; // Skip this table and continue with others
+                        }
+                        
+                        console.error(`❌ Failed to delete ${step.description}:`, deleteError);
+                        return res.status(500).json({
+                            success: false,
+                            error: `Failed to delete ${step.description}: ${deleteError.message}`
+                        });
+                    }
+                    console.log(`✅ Deleted ${step.description}`);
+                } catch (error) {
+                    // Check if it's a "table doesn't exist" error
+                    if (error.message && error.message.includes('does not exist')) {
+                        console.log(`⚠️ Table '${step.table}' does not exist, skipping...`);
+                        continue; // Skip this table and continue with others
+                    }
+                    
+                    console.error(`❌ Error deleting ${step.description}:`, error);
+                    return res.status(500).json({
+                        success: false,
+                        error: `Error deleting ${step.description}: ${error.message}`
+                    });
+                }
+            }
+
+            // Step 2: Delete the company itself
+            console.log('🗑️ Step 2: Deleting company record...');
+            try {
+                const { error: companyDeleteError } = await supabase
+                    .from('companies')
+                    .delete()
+                    .eq('id', companyId);
+
+                if (companyDeleteError) {
+                    console.error('❌ Failed to delete company record:', companyDeleteError);
+                    return res.status(500).json({
+                        success: false,
+                        error: `Failed to delete company record: ${companyDeleteError.message}`
+                    });
+                }
+                console.log('✅ Deleted company record');
+            } catch (error) {
+                console.error('❌ Error deleting company record:', error);
                 return res.status(500).json({
                     success: false,
-                    error: 'Failed to delete company'
+                    error: `Error deleting company record: ${error.message}`
                 });
             }
 
+            // Step 3: Delete all data from Pinecone
+            console.log('🗑️ Step 3: Deleting data from Pinecone...');
+            try {
+                const pineconeResult = await this.deleteCompanyFromPinecone(company.name);
+                if (!pineconeResult.success) {
+                    console.warn(`⚠️ Pinecone deletion warning: ${pineconeResult.error}`);
+                    // Don't fail the entire operation if Pinecone fails
+                } else {
+                    console.log('✅ Deleted data from Pinecone');
+                }
+            } catch (pineconeError) {
+                console.error('❌ Pinecone deletion error:', pineconeError);
+                // Don't fail the entire operation if Pinecone fails
+            }
+
+            console.log(`🎉 Company ${company.name} and all associated data deleted successfully`);
+
             res.json({
                 success: true,
-                message: 'Company deleted successfully',
+                message: 'Company and all associated data deleted successfully',
                 data: {
                     companyId,
-                    companyName: company.name
+                    companyName: company.name,
+                    displayName: company.display_name,
+                    deletedFrom: {
+                        supabase: true,
+                        pinecone: true
+                    }
                 }
             });
 
         } catch (error) {
-            console.error('Delete company error:', error);
+            console.error('❌ Delete company error:', error);
             res.status(500).json({
                 success: false,
-                error: 'Internal server error'
+                error: 'Internal server error during company deletion'
             });
+        }
+    },
+
+    /**
+     * Delete company data from Pinecone
+     */
+    async deleteCompanyFromPinecone(companyName) {
+        try {
+            console.log(`🗑️ Deleting Pinecone data for company: ${companyName}`);
+            
+            // Call Python API to delete from Pinecone
+            const axios = require('axios');
+            const PYTHON_API_BASE_URL = process.env.PYTHON_API_BASE_URL || 'http://localhost:5001';
+            
+            const response = await axios.delete(
+                `${PYTHON_API_BASE_URL}/delete-company-data/${encodeURIComponent(companyName)}`,
+                {
+                    timeout: 30000 // 30 second timeout
+                }
+            );
+
+            if (response.data.success) {
+                console.log(`✅ Pinecone deletion successful for ${companyName}`);
+                return { success: true };
+            } else {
+                console.error(`❌ Pinecone deletion failed for ${companyName}:`, response.data.error);
+                return { success: false, error: response.data.error };
+            }
+
+        } catch (error) {
+            console.error(`❌ Pinecone deletion error for ${companyName}:`, error.message);
+            return { 
+                success: false, 
+                error: error.response?.data?.detail || error.message 
+            };
         }
     },
 
@@ -451,4 +592,4 @@ const companyController = {
     }
 };
 
-module.exports = companyController; 
+module.exports = companyController;

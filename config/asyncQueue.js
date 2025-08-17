@@ -357,7 +357,7 @@ class AsyncJobQueue extends EventEmitter {
         console.log(`🔍 Environment PYTHON_API_BASE_URL: ${process.env.PYTHON_API_BASE_URL}`);
         console.log(`🔗 Using Python API URL: ${PYTHON_API_BASE_URL}`);
         
-        const { videoUrl, companyName, isLoom, isYouTube, source, meetingLink, userId, createQuDemo, buildIndex } = job.data;
+        const { videoUrl, companyName, video_id, isLoom, isYouTube, source, meetingLink, userId, createQuDemo, buildIndex } = job.data;
         
         try {
             // Check if Python API is healthy first (with retry logic)
@@ -411,13 +411,6 @@ class AsyncJobQueue extends EventEmitter {
 
             console.log(`📋 Python API Response:`, response.data);
             
-            // Generate video_id since Python API doesn't return one
-            const video_id = uuidv4();
-            
-            console.log(`✅ Generated video_id: ${video_id}`);
-
-
-            
             // Update progress
             const videoType = isLoom ? 'Loom' : 'YouTube';
             this.emit('jobProgress', { 
@@ -441,85 +434,133 @@ class AsyncJobQueue extends EventEmitter {
             }
             console.log(`✅ Found company: ${company.id}`);
 
-            // Save video data to database
-            const videoData = {
-                id: video_id,
-                company_id: company.id,
-                user_id: userId,
-                video_url: videoUrl,
-                transcript_url: null, // Not used for Loom videos
-                faiss_index_url: null, // Not used for Loom videos
-                video_name: video_id,
-                created_at: new Date().toISOString() // This is correct for videos table (timestamp with time zone)
-            };
-
-            console.log(`💾 Saving video to database:`, videoData);
-            const { error: videoError } = await supabase
+            // Update existing video entry with completed status
+            console.log(`💾 Updating video status to completed: ${video_id}`);
+            const { error: videoUpdateError } = await supabase
                 .from('videos')
-                .insert(videoData);
+                .update({ 
+                    status: 'completed',
+                    updated_at: new Date().toISOString()
+                })
+                .eq('id', video_id);
 
-            if (videoError) {
-                console.error(`❌ Video insert error:`, videoError);
-                throw new Error(`Database error: ${videoError.message}`);
+            if (videoUpdateError) {
+                console.error(`❌ Video status update error:`, videoUpdateError);
+                throw new Error(`Database error: ${videoUpdateError.message}`);
             }
-            console.log(`✅ Video saved to database successfully`);
+            console.log(`✅ Video status updated to completed`);
 
+            // Update knowledge source entry with completed status
+            console.log(`💾 Updating knowledge source status to completed for video: ${video_id}`);
+            const { error: knowledgeUpdateError } = await supabase
+                .from('knowledge_sources')
+                .update({ 
+                    status: 'completed',
+                    processed_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString()
+                })
+                .eq('source_url', videoUrl)
+                .eq('source_type', 'video');
 
-
-            // Insert into qudemos table if this is a QuDemo creation
-            console.log(`🔍 createQuDemo flag: ${createQuDemo}`);
-            if (createQuDemo) {
-                const videoType = isLoom ? 'Loom' : 'YouTube';
-                const qudemoData = {
-                    id: video_id,
-                    title: `${videoType} Video Demo - ${companyName}`,
-                    description: `AI-powered ${videoType} video demo for ${companyName}`,
-                    video_url: videoUrl,
-                    thumbnail_url: this.generateThumbnailUrl(videoUrl), // Use the new helper
-                    company_id: company.id,
-                    created_by: userId,
-                    is_active: true,
-                    created_at: new Date().toISOString().replace('Z', ''), // Remove timezone for timestamp without time zone
-                    updated_at: new Date().toISOString().replace('Z', ''), // Remove timezone for timestamp without time zone
-                    video_name: video_id
-                };
-
-                console.log(`💾 Saving qudemo to database:`, qudemoData);
-                const { error: qudemoError } = await supabase
-                    .from('qudemos')
-                    .insert(qudemoData);
-
-                if (qudemoError) {
-                    console.error(`❌ Qudemo insert error:`, qudemoError);
-                    throw new Error(`Qudemo database error: ${qudemoError.message}`);
-                }
-
-                console.log(`✅ Qudemo inserted successfully: ${video_id}`);
+            if (knowledgeUpdateError) {
+                console.error(`❌ Knowledge source status update error:`, knowledgeUpdateError);
+                // Don't fail the job for this error, just log it
             } else {
-                console.log(`⚠️ createQuDemo is false, skipping qudemo insert`);
+                console.log(`✅ Knowledge source status updated to completed`);
             }
 
-            this.emit('jobProgress', { 
-                queue: 'video', 
-                jobId: job.id, 
-                progress: 100, 
-                message: `${videoType} video processing completed successfully` 
-            });
+            console.log(`✅ Video processing completed successfully: ${video_id}`);
 
-            console.log(`🎉 ${videoType} video processing completed successfully: ${videoUrl}`);
-            return { video_id, status: 'completed' };
+            return {
+                video_id: video_id,
+                status: 'completed',
+                message: `${videoType} video processed successfully`
+            };
             
         } catch (error) {
-            // Check if this is a video processing error from the Python API response
-            let errorMessage = error.message;
+            console.error(`❌ Video processing failed:`, error);
             
-            // If it's an axios error with response data, check the detail field
-            if (error.response && error.response.data && error.response.data.detail) {
-                errorMessage = error.response.data.detail;
-            }
+            // Clean up all data if processing failed
+            await this.cleanupFailedVideoData(video_id, videoUrl, companyName);
             
-            console.error(`❌ Video processing failed for job ${job.id}:`, errorMessage);
             throw error;
+        }
+    }
+
+    async cleanupFailedVideoData(video_id, videoUrl, companyName) {
+        console.log(`🧹 Cleaning up failed video data for: ${video_id}`);
+        
+        try {
+            const { createClient } = require('@supabase/supabase-js');
+            const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+            
+            // Delete from videos table
+            console.log(`🗑️ Deleting from videos table: ${video_id}`);
+            const { error: videoDeleteError } = await supabase
+                .from('videos')
+                .delete()
+                .eq('id', video_id);
+            
+            if (videoDeleteError) {
+                console.error(`❌ Failed to delete from videos table:`, videoDeleteError);
+            } else {
+                console.log(`✅ Deleted from videos table`);
+            }
+
+            // Delete from qudemos table
+            console.log(`🗑️ Deleting from qudemos table: ${video_id}`);
+            const { error: qudemoDeleteError } = await supabase
+                .from('qudemos')
+                .delete()
+                .eq('id', video_id);
+            
+            if (qudemoDeleteError) {
+                console.error(`❌ Failed to delete from qudemos table:`, qudemoDeleteError);
+            } else {
+                console.log(`✅ Deleted from qudemos table`);
+            }
+
+            // Delete from knowledge_sources table
+            console.log(`🗑️ Deleting from knowledge_sources table for video: ${videoUrl}`);
+            const { error: knowledgeDeleteError } = await supabase
+                .from('knowledge_sources')
+                .delete()
+                .eq('source_url', videoUrl)
+                .eq('source_type', 'video');
+            
+            if (knowledgeDeleteError) {
+                console.error(`❌ Failed to delete from knowledge_sources table:`, knowledgeDeleteError);
+            } else {
+                console.log(`✅ Deleted from knowledge_sources table`);
+            }
+
+            // Delete from Pinecone
+            console.log(`🗑️ Deleting from Pinecone for company: ${companyName}`);
+            try {
+                const axios = require('axios');
+                const PYTHON_API_BASE_URL = process.env.PYTHON_API_BASE_URL || 'http://localhost:5001';
+                
+                const response = await axios.delete(`${PYTHON_API_BASE_URL}/delete-video-data/${companyName}`, {
+                    data: {
+                        video_id: video_id,
+                        video_url: videoUrl
+                    },
+                    timeout: 30000
+                });
+                
+                if (response.data.success) {
+                    console.log(`✅ Deleted from Pinecone`);
+                } else {
+                    console.error(`❌ Failed to delete from Pinecone:`, response.data.error);
+                }
+            } catch (pineconeError) {
+                console.error(`❌ Pinecone deletion error:`, pineconeError.message);
+            }
+
+            console.log(`✅ Cleanup completed for failed video: ${video_id}`);
+            
+        } catch (cleanupError) {
+            console.error(`❌ Cleanup failed:`, cleanupError);
         }
     }
 
