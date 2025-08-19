@@ -11,7 +11,7 @@ const supabase = createClient(
 
 // Configuration
 const PYTHON_API_BASE_URL = process.env.PYTHON_API_BASE_URL || 'http://localhost:5001';
-const PYTHON_API_TIMEOUT = parseInt(process.env.PYTHON_API_TIMEOUT) || 300000; // 5 minutes default
+const PYTHON_API_TIMEOUT = parseInt(process.env.PYTHON_API_TIMEOUT) || 7200000; // 120 minutes default
 
 class KnowledgeController {
     /**
@@ -64,12 +64,13 @@ class KnowledgeController {
             console.log(`🔍 DEBUG: Calling Python API for website processing`);
             console.log(`🔍 DEBUG: Python API URL: ${PYTHON_API_BASE_URL}/process-website/${companyName}`);
 
-            // Call Python API to process website
+            // Call Python API to process website with smart scraper
             const response = await axios.post(
                 `${PYTHON_API_BASE_URL}/process-website/${companyName}`,
                 { 
                     website_url: websiteUrl,
-                    knowledge_source_id: knowledgeSourceData.id
+                    knowledge_source_id: knowledgeSourceData.id,
+                    use_smart_scraper: true  // Enable smart scraping
                 },
                 { timeout: PYTHON_API_TIMEOUT }
             );
@@ -103,7 +104,8 @@ class KnowledgeController {
                     message: 'Website knowledge processed and stored successfully',
                     data: {
                         ...response.data,
-                        knowledgeSource: insertedData[0]
+                        knowledgeSource: insertedData[0],
+                        task_id: response.data.task_id  // Return task ID for progress tracking
                     }
                 });
             } else {
