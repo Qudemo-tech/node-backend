@@ -1,14 +1,14 @@
 const axios = require('axios');
 const { createClient } = require('@supabase/supabase-js');
+
+// Create Supabase client
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY
+);
 const { v4: uuidv4 } = require('uuid');
 require('dotenv').config();
 const path = require('path');
-
-// Initialize Supabase client
-const supabase = createClient(
-    process.env.SUPABASE_URL,
-    process.env.SUPABASE_SERVICE_ROLE_KEY
-);
 
 // Configuration
 const PYTHON_API_BASE_URL = process.env.PYTHON_API_BASE_URL || 'http://localhost:5001';
@@ -54,7 +54,7 @@ class VideoProcessingService {
      */
     async checkHealth() {
         try {
-            const response = await axios.get(`${this.apiBaseUrl}/health`);
+            const response = await axios.get(`${this.apiBaseUrl}/status`);
             return {
                 success: true,
                 data: response.data
@@ -337,7 +337,6 @@ const videoController = {
             }
 
             // Get company info
-            const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
             const { data: company, error: companyError } = await supabase
                 .from('companies')
                 .select('id, name')
@@ -393,7 +392,7 @@ const videoController = {
             };
 
             const { error: qudemoError } = await supabase
-                .from('qudemos')
+                .from('qudemos_new')
                 .insert(qudemoData);
 
             if (qudemoError) {
@@ -418,7 +417,7 @@ const videoController = {
             };
 
             const { error: knowledgeError } = await supabase
-                .from('knowledge_sources')
+                .from('qudemo_knowledge_sources')
                 .insert(knowledgeSourceData);
 
             if (knowledgeError) {
@@ -500,7 +499,6 @@ const videoController = {
             }
 
             // Get company info
-            const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
             const { data: company, error: companyError } = await supabase
                 .from('companies')
                 .select('id, name')
@@ -633,7 +631,6 @@ const videoController = {
             // If we have companyId but not companyName, fetch company name from database
             let finalCompanyName = companyName;
             if (companyId && !companyName) {
-                const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
                 const { data: company, error: companyError } = await supabase
                     .from('companies')
                     .select('name')
@@ -681,7 +678,6 @@ const videoController = {
             }
 
             // Get company info
-            const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
             const { data: company, error: companyError } = await supabase
                 .from('companies')
                 .select('id, name')
@@ -733,17 +729,18 @@ const videoController = {
                 
                 console.log(`⏱️ Using timeout: ${timeout/1000/60} minutes for ${isLoomVideo ? 'Loom' : 'other'} video`);
                 
-                const response = await axios.post(`${PYTHON_API_BASE_URL}/process-video/${finalCompanyName}`, payload, {
+                const response = await axios.post(`${PYTHON_API_BASE_URL}/process-video/${encodeURIComponent(finalCompanyName)}`, payload, {
                     timeout: timeout,
                     headers: { 'Content-Type': 'application/json' }
                 });
 
                 console.log('🔍 Python API response received:', response.data);
                 
-                if (response.data && response.data.success && response.data.result) {
+                if (response.data && response.data.success) {
                     // Extract video_id from nested response structure or generate one
                     const video_id = response.data.data?.video_id || response.data.video_id || uuidv4();
                     console.log('✅ Video processing successful, video_id:', video_id);
+                    console.log('📊 Processing result:', response.data.result);
                     
                     console.log('💾 Inserting into videos table...');
                     
@@ -791,33 +788,37 @@ const videoController = {
                         // Removed knowledgeSources as it doesn't exist in database schema
                     };
 
-                    console.log('💾 Inserting qudemo data:', qudemoData);
-                    
-                    const { data: qudemoInsertData, error: qudemoError } = await supabase
-                        .from('qudemos')
-                        .insert(qudemoData)
-                        .select();
+                    console.log('💾 Skipping old qudemos table insert - using qudemos_new instead');
 
-                    if (qudemoError) {
-                        console.error(`❌ Qudemo insert error:`, qudemoError);
-                        console.error(`❌ Qudemo insert error details:`, {
-                            message: qudemoError.message,
-                            details: qudemoError.details,
-                            hint: qudemoError.hint,
-                            code: qudemoError.code
-                        });
-                        
-                        // Check if response has already been sent
-                        if (res.headersSent) {
-                            console.error('❌ Response already sent, cannot send error response');
-                            return;
-                        }
-                        
-                        return res.status(500).json({
-                            success: false,
-                            error: `Qudemo database error: ${qudemoError.message}`,
-                            details: qudemoError.details
-                        });
+                    // Skip creating duplicate qudemo - user already created one manually
+                    console.log('💾 Skipping duplicate qudemo creation - user already created qudemo manually');
+
+                    // Insert video into qudemo_videos table for the new system
+                    const videoData = {
+                        id: uuidv4(),
+                        qudemo_id: video_id,
+                        video_url: videoUrl,
+                        video_type: videoType.toLowerCase(),
+                        title: `${videoType} Video`,
+                        description: `Processed ${videoType} video`,
+                        duration: '0:00', // Will be updated when we have duration info
+                        thumbnail_url: generateThumbnailUrl(videoUrl),
+                        order_index: 0,
+                        created_at: new Date().toISOString(),
+                        updated_at: new Date().toISOString()
+                    };
+
+                    console.log('💾 Inserting video data:', videoData);
+                    
+                    const { error: videoInsertError } = await supabase
+                        .from('qudemo_videos')
+                        .insert([videoData]);
+
+                    if (videoInsertError) {
+                        console.error(`❌ Video insert error:`, videoInsertError);
+                        // Don't fail the request, just log the error
+                    } else {
+                        console.log('✅ Video inserted into qudemo_videos successfully');
                     }
 
                     console.log('✅ Qudemo inserted successfully');
@@ -825,7 +826,6 @@ const videoController = {
                     // Store video metadata in knowledge_sources table
                     const knowledgeSourceData = {
                         id: uuidv4(),
-                        company_name: finalCompanyName.toLowerCase(),
                         source_type: 'video',
                         source_url: videoUrl,
                         title: `${videoType} Video: ${response.data.title || video_id}`,
@@ -837,7 +837,7 @@ const videoController = {
                     };
 
                     const { error: knowledgeError } = await supabase
-                        .from('knowledge_sources')
+                        .from('qudemo_knowledge_sources')
                         .insert([knowledgeSourceData]);
 
                     if (knowledgeError) {
@@ -862,11 +862,11 @@ const videoController = {
                             video_url: videoUrl,
                             company_name: finalCompanyName,
                             status: 'completed',
-                            method: resultData.method,
-                            title: resultData.title,
-                            chunks_created: resultData.chunks_created,
-                            vectors_stored: resultData.vectors_stored,
-                            word_count: resultData.word_count
+                            method: resultData.processing_method || 'transcription_only',
+                            title: `${videoType} Video Demo - ${finalCompanyName}`,
+                            chunks_created: resultData.chunks_stored || 0,
+                            vectors_stored: resultData.chunks_stored || 0,
+                            word_count: resultData.transcription_length || 0
                         }
                     });
                 } else {
@@ -957,6 +957,7 @@ const videoController = {
             console.log(`📊 Active video processing: ${activeVideoProcessing}/${MAX_CONCURRENT_VIDEOS}`);
             
             console.error('❌ Video creation error:', error);
+            console.error('❌ Error stack:', error.stack);
             
             // Check if response has already been sent
             if (res.headersSent) {
@@ -966,7 +967,8 @@ const videoController = {
             
             return res.status(500).json({
                 success: false,
-                error: 'An error occurred while creating the video'
+                error: 'An error occurred while creating the video',
+                details: error.message
             });
         }
     },
@@ -1281,7 +1283,6 @@ const videoController = {
             console.log(`🎬 Starting batch processing for ${companyName}: ${videoUrls.length} videos`);
             
             // Get company info
-            const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
             const { data: company, error: companyError } = await supabase
                 .from('companies')
                 .select('id, name')
@@ -1386,14 +1387,8 @@ const videoController = {
                                 video_name: video_id
                             };
                             
-                            const { error: qudemoError } = await supabase
-                                .from('qudemos')
-                                .insert(qudemoData);
-
-                            if (qudemoError) {
-                                console.error(`❌ Qudemo insert error for video ${videoIndex}:`, qudemoError);
-                                throw new Error(`Database error: ${qudemoError.message}`);
-                            }
+                            // Skip creating duplicate qudemo - user already created one manually
+                            console.log(`💾 Skipping duplicate qudemo creation for video ${videoIndex} - user already created qudemo manually`);
                             
                             // Store video metadata in knowledge_sources table
                             const knowledgeSourceData = {
@@ -1410,7 +1405,7 @@ const videoController = {
                             };
 
                             const { error: knowledgeError } = await supabase
-                                .from('knowledge_sources')
+                                .from('qudemo_knowledge_sources')
                                 .insert([knowledgeSourceData]);
 
                             if (knowledgeError) {
@@ -1489,6 +1484,369 @@ const videoController = {
                 success: false,
                 error: 'Batch processing failed',
                 details: error.message
+            });
+        }
+    },
+
+    /**
+     * Process video for a specific qudemo
+     * @param {Object} req - Express request object
+     * @param {Object} res - Express response object
+     */
+    async processVideoForQudemo(req, res) {
+        try {
+            const { videoUrl, qudemoId, source, meetingLink } = req.body;
+            const companyId = req.body.companyId || req.query.companyId;
+            const companyName = req.body.companyName || req.query.companyName;
+
+            console.log(`🎬 Processing video for qudemo: ${videoUrl}`);
+            console.log(`🎯 Qudemo ID: ${qudemoId}`);
+            console.log(`🏢 Company ID: ${companyId}, Name: ${companyName}`);
+
+            // Validate required parameters
+            if (!videoUrl) {
+                return res.status(400).json({
+                    success: false,
+                    error: 'Video URL is required'
+                });
+            }
+
+            if (!qudemoId) {
+                return res.status(400).json({
+                    success: false,
+                    error: 'Qudemo ID is required'
+                });
+            }
+
+            // Get company name if not provided
+            let finalCompanyName = companyName;
+            if (companyId && !companyName) {
+                const { data: company, error: companyError } = await supabase
+                    .from('companies')
+                    .select('name')
+                    .eq('id', companyId)
+                    .single();
+
+                if (companyError || !company) {
+                    return res.status(404).json({
+                        success: false,
+                        error: 'Company not found with the provided ID'
+                    });
+                }
+                finalCompanyName = company.name;
+            } else if (!companyName && !companyId) {
+                return res.status(400).json({
+                    success: false,
+                    error: 'Company ID or company name is required'
+                });
+            }
+
+            // Validate video URL
+            if (!videoUrl.startsWith('http')) {
+                return res.status(400).json({
+                    success: false,
+                    error: 'Invalid video URL. URL must start with http.'
+                });
+            }
+            
+            // Check if it's a supported video platform
+            const isLoomVideo = videoUrl.includes('loom.com');
+            const isYouTubeVideo = videoUrl.includes('youtube.com') || videoUrl.includes('youtu.be');
+            
+            if (!isLoomVideo && !isYouTubeVideo) {
+                return res.status(400).json({
+                    success: false,
+                    error: 'Unsupported video platform. Only Loom and YouTube videos are supported.'
+                });
+            }
+
+            // Check if qudemo exists
+            const { data: qudemo, error: qudemoError } = await supabase
+                .from('qudemos_new')
+                .select('id, title, company_id')
+                .eq('id', qudemoId)
+                .single();
+
+            if (qudemoError || !qudemo) {
+                return res.status(404).json({
+                    success: false,
+                    error: 'Qudemo not found with the provided ID'
+                });
+            }
+
+            // Verify qudemo belongs to the company
+            if (qudemo.company_id !== companyId) {
+                return res.status(403).json({
+                    success: false,
+                    error: 'Qudemo does not belong to the specified company'
+                });
+            }
+
+            console.log(`✅ Qudemo validation passed: ${qudemo.title}`);
+
+            // Check processing limits
+            if (activeVideoProcessing >= MAX_CONCURRENT_VIDEOS) {
+                return res.status(429).json({
+                    success: false,
+                    error: 'Too many videos being processed. Please try again in a few minutes.',
+                    retry_after: 300 // 5 minutes
+                });
+            }
+
+            // Increment active processing counter
+            activeVideoProcessing++;
+            console.log(`📊 Active video processing: ${activeVideoProcessing}/${MAX_CONCURRENT_VIDEOS}`);
+
+            // Process video with qudemo_id using the new Python API endpoint
+            const payload = {
+                video_url: videoUrl,
+                company_name: finalCompanyName,
+                qudemo_id: qudemoId,
+                source: source || 'qudemo',
+                meeting_link: meetingLink || null
+            };
+
+            try {
+                console.log(`🚀 Starting Python API call for qudemo video: ${videoUrl}`);
+                console.log(`📦 Payload:`, JSON.stringify(payload, null, 2));
+                
+                // Call Python API with the new qudemo-specific endpoint
+                const isLoomVideo = videoUrl.includes('loom.com');
+                const timeout = isLoomVideo ? PYTHON_API_TIMEOUT * 3 : PYTHON_API_TIMEOUT; // 15 minutes for Loom, 5 minutes for others
+                
+                console.log(`⏱️ Using timeout: ${timeout/1000/60} minutes for ${isLoomVideo ? 'Loom' : 'other'} video`);
+                
+                // Use the new endpoint with qudemo_id in the URL
+                const response = await axios.post(`${PYTHON_API_BASE_URL}/process-video/${encodeURIComponent(finalCompanyName)}/${qudemoId}`, payload, {
+                    timeout: timeout,
+                    headers: { 'Content-Type': 'application/json' }
+                });
+
+                console.log('🔍 Python API response received:', response.data);
+                
+                if (response.data && response.data.success) {
+                    // Extract video_id from nested response structure or generate one
+                    const video_id = response.data.data?.video_id || response.data.video_id || uuidv4();
+                    console.log('✅ Video processing successful, video_id:', video_id);
+                    console.log('📊 Processing result:', response.data.result);
+                    
+                    console.log('💾 Inserting into qudemo_videos table...');
+                    
+                    // Get the next order_index for this qudemo
+                    const { data: existingVideos, error: countError } = await supabase
+                        .from('qudemo_videos')
+                        .select('order_index')
+                        .eq('qudemo_id', qudemoId)
+                        .order('order_index', { ascending: false })
+                        .limit(1);
+
+                    const nextOrderIndex = existingVideos && existingVideos.length > 0 
+                        ? existingVideos[0].order_index + 1 
+                        : 1;
+
+                    // Insert into qudemo_videos table
+                    const { error: videoError } = await supabase
+                        .from('qudemo_videos')
+                        .insert({
+                            id: video_id,
+                            qudemo_id: qudemoId,
+                            video_url: videoUrl,
+                            video_type: isLoomVideo ? 'loom' : 'youtube',
+                            title: `Video for ${qudemo.title}`,
+                            description: `Processed video for qudemo: ${qudemo.title}`,
+                            order_index: nextOrderIndex,
+                            metadata: {
+                                processing_result: response.data.result,
+                                processed_at: new Date().toISOString(),
+                                source: source || 'qudemo'
+                            },
+                            created_at: new Date().toISOString(),
+                            updated_at: new Date().toISOString()
+                        });
+
+                    if (videoError) {
+                        console.error('❌ Error inserting into qudemo_videos:', videoError);
+                        return res.status(500).json({
+                            success: false,
+                            error: 'Failed to save video to database'
+                        });
+                    }
+                    
+                    console.log('✅ Video saved to qudemo_videos table successfully');
+                    
+                    // Decrement active processing counter
+                    activeVideoProcessing--;
+                    console.log(`📊 Active video processing: ${activeVideoProcessing}/${MAX_CONCURRENT_VIDEOS}`);
+                    
+                    res.json({
+                        success: true,
+                        message: 'Video processed and saved successfully',
+                        data: {
+                            video_id: video_id,
+                            qudemo_id: qudemoId,
+                            company_name: finalCompanyName,
+                            processing_result: response.data.result
+                        }
+                    });
+                } else {
+                    throw new Error(response.data.error || 'Video processing failed');
+                }
+                
+            } catch (apiError) {
+                console.error('❌ Python API error:', apiError);
+                
+                // Decrement active processing counter
+                activeVideoProcessing--;
+                console.log(`📊 Active video processing: ${activeVideoProcessing}/${MAX_CONCURRENT_VIDEOS}`);
+                
+                let errorMessage = 'Video processing failed';
+                if (apiError.response?.data?.detail) {
+                    errorMessage = apiError.response.data.detail;
+                } else if (apiError.message) {
+                    errorMessage = apiError.message;
+                }
+                
+                res.status(500).json({
+                    success: false,
+                    error: errorMessage
+                });
+            }
+            
+        } catch (error) {
+            console.error('❌ Process video for qudemo error:', error);
+            
+            // Decrement active processing counter
+            activeVideoProcessing--;
+            console.log(`📊 Active video processing: ${activeVideoProcessing}/${MAX_CONCURRENT_VIDEOS}`);
+            
+            res.status(500).json({
+                success: false,
+                error: 'Internal server error'
+            });
+        }
+    },
+
+    /**
+     * Get video transcript chunks from vector database
+     */
+    async getVideoTranscript(req, res) {
+        try {
+            const { videoId } = req.params;
+            
+            console.log(`🔍 Getting transcript chunks for video: ${videoId}`);
+            
+            // Get video from the qudemo_videos table
+            const { data: video, error: videoError } = await supabase
+                .from('qudemo_videos')
+                .select('*')
+                .eq('id', videoId)
+                .single();
+            
+            if (videoError || !video) {
+                console.log(`❌ Video not found in qudemo_videos: ${videoId}`);
+                return res.status(404).json({
+                    success: false,
+                    error: 'Video not found'
+                });
+            }
+            
+            console.log(`✅ Found video: ${video.video_url}`);
+            
+            // Get the qudemo_id to find the company name
+            const { data: qudemo, error: qudemoError } = await supabase
+                .from('qudemos_new')
+                .select('company_id')
+                .eq('id', video.qudemo_id)
+                .single();
+            
+            if (qudemoError || !qudemo) {
+                console.log(`❌ Qudemo not found: ${video.qudemo_id}`);
+                return res.status(404).json({
+                    success: false,
+                    error: 'Qudemo not found'
+                });
+            }
+            
+            // Get company name
+            const { data: company, error: companyError } = await supabase
+                .from('companies')
+                .select('name')
+                .eq('id', qudemo.company_id)
+                .single();
+            
+            if (companyError || !company) {
+                console.log(`❌ Company not found: ${qudemo.company_id}`);
+                return res.status(404).json({
+                    success: false,
+                    error: 'Company not found'
+                });
+            }
+            
+            const companyName = company.name;
+            console.log(`✅ Company: ${companyName}`);
+            
+            // Call Python backend to get transcript chunks from vector database
+            try {
+                const axios = require('axios');
+                const pythonApiUrl = process.env.PYTHON_API_BASE_URL || 'http://localhost:5001';
+                
+                // Get all chunks for this video from vector database
+                const chunksResponse = await axios.post(`${pythonApiUrl}/get-video-chunks`, {
+                    video_id: videoId,
+                    company_name: companyName,
+                    video_url: video.video_url
+                }, {
+                    timeout: 30000
+                });
+                
+                if (chunksResponse.data.success) {
+                    const chunks = chunksResponse.data.chunks || [];
+                    console.log(`✅ Found ${chunks.length} transcript chunks for video: ${videoId}`);
+                    
+                    // Combine chunks into a full transcript
+                    const fullTranscript = chunks.map(chunk => chunk.text).join(' ');
+                    
+                    res.json({
+                        success: true,
+                        video_id: videoId,
+                        transcript: fullTranscript,
+                        video_url: video.video_url,
+                        chunks_count: chunks.length,
+                        chunks: chunks
+                    });
+                } else {
+                    console.log(`⚠️ No chunks found for video: ${videoId}`);
+                    res.json({
+                        success: true,
+                        video_id: videoId,
+                        transcript: `This video titled "${video.title || 'Untitled'}" contains content about the topic. The transcript chunks are not currently available in the vector database.`,
+                        video_url: video.video_url,
+                        chunks_count: 0,
+                        chunks: []
+                    });
+                }
+                
+            } catch (pythonError) {
+                console.error(`❌ Failed to get chunks from Python API:`, pythonError.message);
+                
+                // Fallback: return a basic transcript based on video metadata
+                const fallbackTranscript = `This video titled "${video.title || 'Untitled'}" contains content about the topic. The transcript chunks are not currently available, but you can watch the video to see the relevant information.`;
+                
+                res.json({
+                    success: true,
+                    video_id: videoId,
+                    transcript: fallbackTranscript,
+                    video_url: video.video_url,
+                    chunks_count: 0,
+                    chunks: []
+                });
+            }
+            
+        } catch (error) {
+            console.error('❌ Error getting video transcript:', error);
+            res.status(500).json({
+                success: false,
+                error: 'Failed to get video transcript'
             });
         }
     }

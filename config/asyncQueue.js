@@ -453,7 +453,7 @@ class AsyncJobQueue extends EventEmitter {
             // Update knowledge source entry with completed status
             console.log(`💾 Updating knowledge source status to completed for video: ${video_id}`);
             const { error: knowledgeUpdateError } = await supabase
-                .from('knowledge_sources')
+                .from('qudemo_knowledge_sources')
                 .update({ 
                     status: 'completed',
                     processed_at: new Date().toISOString(),
@@ -523,7 +523,7 @@ class AsyncJobQueue extends EventEmitter {
             // Delete from knowledge_sources table
             console.log(`🗑️ Deleting from knowledge_sources table for video: ${videoUrl}`);
             const { error: knowledgeDeleteError } = await supabase
-                .from('knowledge_sources')
+                .from('qudemo_knowledge_sources')
                 .delete()
                 .eq('source_url', videoUrl)
                 .eq('source_type', 'video');

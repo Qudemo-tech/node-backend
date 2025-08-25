@@ -28,6 +28,20 @@ router.post('/', auth.authenticateToken, validate(createCompanySchema), companyC
  */
 router.get('/', auth.authenticateToken, companyController.getCompanies);
 
+/**
+ * @route   POST /api/companies/fix-association
+ * @desc    Fix user company association (utility endpoint)
+ * @access  Private
+ */
+router.post('/fix-association', auth.authenticateToken, companyController.fixUserCompanyAssociation);
+
+/**
+ * @route   GET /api/companies/all
+ * @desc    Get all companies (for debugging)
+ * @access  Private
+ */
+router.get('/all', auth.authenticateToken, companyController.getAllCompanies);
+
 // Add a new lead (protected route)
 router.post('/leads', /* add auth middleware here if needed */ leadController.addLead);
 

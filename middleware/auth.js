@@ -1,14 +1,14 @@
 const jwt = require('jsonwebtoken');
 const { createClient } = require('@supabase/supabase-js');
+
+// Create Supabase client
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY
+);
 const jwksClient = require('jwks-rsa');
 
-// Initialize Supabase client
-const supabase = createClient(
-    process.env.SUPABASE_URL,
-    process.env.SUPABASE_SERVICE_ROLE_KEY
-);
-
-const SUPABASE_JWKS_URI = `${process.env.SUPABASE_URL}/auth/v1/keys`;
+const SUPABASE_JWKS_URI = `${process.env.SUPABASE_URL || 'https://placeholder.supabase.co'}/auth/v1/keys`;
 
 const client = jwksClient({
   jwksUri: SUPABASE_JWKS_URI,
@@ -40,7 +40,7 @@ const authenticateToken = (req, res, next) => {
     }
 
     // Try to verify with your own secret first (for email/password users)
-    jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
+    jwt.verify(token, process.env.JWT_SECRET || 'default_secret', (err, user) => {
         if (err) {
             console.error('❌ JWT verification failed:', err.message);
             return res.status(403).json({ success: false, error: 'Invalid token' });
@@ -112,10 +112,10 @@ const requireCompanyAccess = async (req, res, next) => {
 
         // Check if user has access to this company
         const { data: userCompany, error } = await supabase
-            .from('user_companies')
-            .select('company_id, role')
+            .from('companies')
+            .select('id, name, user_id')
             .eq('user_id', req.user.id)
-            .eq('company_name', companyName)
+            .eq('name', companyName)
             .single();
 
         if (error || !userCompany) {

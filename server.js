@@ -9,16 +9,15 @@ require('dotenv').config();
 // Import routes
 const authRoutes = require('./routes/authRoutes');
 const userRoutes = require('./routes/userRoutes');
+const companyRoutes = require('./routes/companyRoutes');
 const qudemoRoutes = require('./routes/qudemoRoutes');
-const interactionRoutes = require('./routes/interactionRoutes');
+const videoRoutes = require('./routes/videoRoutes');
+const knowledgeRoutes = require('./routes/knowledgeRoutes');
 const analyticsRoutes = require('./routes/analyticsRoutes');
-const settingsRoutes = require('./routes/settingsRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
 const helpRoutes = require('./routes/helpRoutes');
-const videoRoutes = require('./routes/videoRoutes');
-const companyRoutes = require('./routes/companyRoutes');
-const queueRoutes = require('./routes/queueRoutes');
-const knowledgeRoutes = require('./routes/knowledgeRoutes');
+const settingsRoutes = require('./routes/settingsRoutes');
+const qaRoutes = require('./routes/qaRoutes');
 // PoToken routes removed - using direct VM access
 
 // Import middleware
@@ -111,19 +110,20 @@ app.get('/health', healthCheck, (req, res) => {
     });
 });
 
+
+
 // API routes
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
+app.use('/api/companies', companyRoutes);
 app.use('/api/qudemos', qudemoRoutes);
-app.use('/api/interactions', qaConcurrencyControl, requestTimeout(60000), interactionRoutes);
+app.use('/api/video', videoRoutes);
+app.use('/api/knowledge', knowledgeRoutes);
 app.use('/api/analytics', analyticsRoutes);
-app.use('/api/settings', settingsRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/help', helpRoutes);
-app.use('/api/video', videoConcurrencyControl, requestTimeout(300000), videoRoutes);
-app.use('/api/companies', companyRoutes);
-app.use('/api/queue', queueRoutes);
-app.use('/api/knowledge', knowledgeRoutes);
+app.use('/api/settings', settingsRoutes);
+app.use('/api/qa', qaRoutes);
 // PoToken routes removed - using direct VM access
 
 // 404 handler

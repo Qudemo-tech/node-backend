@@ -13,15 +13,7 @@ const createCompanySchema = Joi.object({
             'string.max': 'Company name must be less than 50 characters',
             'any.required': 'Company name is required'
         }),
-    displayName: Joi.string()
-        .min(2)
-        .max(100)
-        .required()
-        .messages({
-            'string.min': 'Display name must be at least 2 characters long',
-            'string.max': 'Display name must be less than 100 characters',
-            'any.required': 'Display name is required'
-        }),
+
     description: Joi.string()
         .max(500)
         .optional()
@@ -46,13 +38,15 @@ const createCompanySchema = Joi.object({
 
 // Company update schema
 const updateCompanySchema = Joi.object({
-    displayName: Joi.string()
+    name: Joi.string()
         .min(2)
-        .max(100)
+        .max(50)
+        .pattern(/^[a-zA-Z0-9_-]+$/)
         .optional()
         .messages({
-            'string.min': 'Display name must be at least 2 characters long',
-            'string.max': 'Display name must be less than 100 characters'
+            'string.pattern.base': 'Company name can only contain letters, numbers, hyphens, and underscores',
+            'string.min': 'Company name must be at least 2 characters long',
+            'string.max': 'Company name must be less than 50 characters'
         }),
     description: Joi.string()
         .max(500)

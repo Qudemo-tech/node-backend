@@ -3,7 +3,7 @@ const router = express.Router();
 const videoController = require('../controllers/videoController');
 const { validateRequest } = require('../middleware/validation');
 const Joi = require('joi');
-const auth = require('../middleware/auth');
+const { authenticateToken } = require('../middleware/auth');
 const multer = require('multer');
 const path = require('path');
 const storage = multer.diskStorage({
@@ -21,11 +21,27 @@ const uploadMemory = multer({ storage: memoryStorage });
 
 // Validation schemas
 const processVideoSchema = Joi.object({
-    videoUrl: Joi.string().uri().required().messages({
-        'string.uri': 'videoUrl must be a valid Loom URL',
-        'any.required': 'videoUrl is required'
+    videoUrl: Joi.string().uri().optional().messages({
+        'string.uri': 'videoUrl must be a valid URL'
     }),
-    companyName: Joi.string().optional()
+    video_url: Joi.string().uri().optional().messages({
+        'string.uri': 'video_url must be a valid URL'
+    }),
+    companyName: Joi.string().optional(),
+    company_name: Joi.string().optional()
+}).custom((value, helpers) => {
+    const hasVideoUrl = value.videoUrl || value.video_url;
+    const hasCompanyName = value.companyName || value.company_name;
+    
+    if (!hasVideoUrl) {
+        return helpers.error('any.invalid', { message: 'Video URL is required' });
+    }
+    
+    if (!hasCompanyName) {
+        return helpers.error('any.invalid', { message: 'Company name is required' });
+    }
+    
+    return value;
 });
 
 const processWebsiteSchema = Joi.object({
@@ -206,28 +222,28 @@ router.post('/cleanup', videoController.cleanup);
  * @desc    Upload a video file and return its URL
  * @access  Private
  */
-router.post('/upload', auth.authenticateToken, upload.single('video'), videoController.uploadVideo);
+router.post('/upload', authenticateToken, upload.single('video'), videoController.uploadVideo);
 
 /**
  * @route   GET /api/video/test-auth
  * @desc    Test authentication endpoint
  * @access  Private
  */
-router.get('/test-auth', auth.authenticateToken, videoController.testAuth);
+router.get('/test-auth', authenticateToken, videoController.testAuth);
 
 /**
  * @route   POST /api/videos
  * @desc    Submit Loom or YouTube video URLs for processing (QuDemo creation)
  * @access  Private
  */
-router.post('/videos', auth.authenticateToken, validateRequest(createVideosSchema), videoController.createVideos);
+router.post('/videos', authenticateToken, validateRequest(createVideosSchema), videoController.createVideos);
 
 /**
  * @route   POST /api/video/debug
  * @desc    Debug endpoint to see what data is being sent
  * @access  Private
  */
-router.post('/debug', auth.authenticateToken, (req, res) => {
+router.post('/debug', authenticateToken, (req, res) => {
     
     console.log('Headers:', req.headers);
     console.log('Body:', req.body);
@@ -251,14 +267,14 @@ router.post('/debug', auth.authenticateToken, (req, res) => {
  * @desc    Test endpoint without validation to see if controller works
  * @access  Private
  */
-router.post('/test-no-validation', auth.authenticateToken, videoController.createVideos);
+router.post('/test-no-validation', authenticateToken, videoController.createVideos);
 
 /**
  * @route   GET /api/video/test-auth-simple
  * @desc    Simple authentication test endpoint
  * @access  Private
  */
-router.get('/test-auth-simple', auth.authenticateToken, (req, res) => {
+router.get('/test-auth-simple', authenticateToken, (req, res) => {
     res.json({
         success: true,
         message: 'Authentication successful',
@@ -287,6 +303,13 @@ router.post('/ask', videoController.askQuestion);
  * @access  Public
  */
 router.post('/audit-mappings', videoController.auditVideoMappings);
+
+/**
+ * @route   POST /api/video/process-qudemo
+ * @desc    Process video for a specific qudemo
+ * @access  Private
+ */
+router.post('/process-qudemo', authenticateToken, videoController.processVideoForQudemo);
 
 // Knowledge Processing Routes
 /**
@@ -402,5 +425,12 @@ router.post('/:companyName/ask-enhanced', videoController.askEnhancedQuestion);
  * @access  Public
  */
 router.get('/:companyName/knowledge-summary', videoController.getKnowledgeSummary);
+
+/**
+ * @route   GET /api/video/:videoId/transcript
+ * @desc    Get video transcript
+ * @access  Public
+ */
+router.get('/:videoId/transcript', videoController.getVideoTranscript);
 
 module.exports = router; 

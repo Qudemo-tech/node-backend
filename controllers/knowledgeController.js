@@ -1,13 +1,13 @@
 const axios = require('axios');
 const { createClient } = require('@supabase/supabase-js');
+
+// Create Supabase client
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY
+);
 const { v4: uuidv4 } = require('uuid');
 require('dotenv').config();
-
-// Initialize Supabase client
-const supabase = createClient(
-    process.env.SUPABASE_URL,
-    process.env.SUPABASE_SERVICE_ROLE_KEY
-);
 
 // Configuration
 const PYTHON_API_BASE_URL = process.env.PYTHON_API_BASE_URL || 'http://localhost:5001';
@@ -19,7 +19,7 @@ class KnowledgeController {
      */
     async processWebsite(req, res) {
         try {
-            const { companyName, websiteUrl } = req.body;
+            const { companyName, websiteUrl, qudemoId } = req.body;
 
             if (!companyName || !websiteUrl) {
                 return res.status(400).json({
@@ -30,11 +30,12 @@ class KnowledgeController {
 
             console.log(`🔍 DEBUG: Creating knowledge source for company: "${companyName}"`);
             console.log(`🔍 DEBUG: Website URL: "${websiteUrl}"`);
+            console.log(`🔍 DEBUG: Qudemo ID: "${qudemoId}"`);
 
-            // Store metadata in knowledge_sources table with processing status
+            // Store metadata in qudemo_knowledge_sources table with processing status
             const knowledgeSourceData = {
                 id: uuidv4(),
-                company_name: companyName.toLowerCase(),
+                qudemo_id: qudemoId || null, // Use qudemo_id if provided
                 source_type: 'website',
                 source_url: websiteUrl,
                 title: `Website: ${new URL(websiteUrl).hostname}`,
@@ -47,7 +48,7 @@ class KnowledgeController {
             console.log(`🔍 DEBUG: Knowledge source data:`, knowledgeSourceData);
 
             const { data: insertedData, error: insertError } = await supabase
-                .from('knowledge_sources')
+                .from('qudemo_knowledge_sources')
                 .insert([knowledgeSourceData])
                 .select();
 
@@ -62,11 +63,17 @@ class KnowledgeController {
             console.log(`🔍 DEBUG: Knowledge source created successfully:`, insertedData);
 
             console.log(`🔍 DEBUG: Calling Python API for website processing`);
-            console.log(`🔍 DEBUG: Python API URL: ${PYTHON_API_BASE_URL}/process-website/${companyName}`);
+            
+            // Use the new endpoint with qudemo_id if provided
+            const endpoint = qudemoId 
+                ? `${PYTHON_API_BASE_URL}/process-website/${companyName}/${qudemoId}`
+                : `${PYTHON_API_BASE_URL}/process-website/${companyName}`;
+            
+            console.log(`🔍 DEBUG: Python API URL: ${endpoint}`);
 
             // Call Python API to process website with smart scraper
             const response = await axios.post(
-                `${PYTHON_API_BASE_URL}/process-website/${companyName}`,
+                endpoint,
                 { 
                     website_url: websiteUrl,
                     knowledge_source_id: knowledgeSourceData.id,
@@ -83,7 +90,7 @@ class KnowledgeController {
                 
                 // Update status to processed
                 const { data: updateData, error: updateError } = await supabase
-                    .from('knowledge_sources')
+                    .from('qudemo_knowledge_sources')
                     .update({
                         status: 'processed',
                         processed_at: new Date().toISOString(),
@@ -110,7 +117,7 @@ class KnowledgeController {
                 });
             } else {
                 // Clean up all data if processing failed
-                await this.cleanupFailedWebsiteData(knowledgeSourceData.id, websiteUrl, companyName);
+                await this.cleanupFailedWebsiteData(knowledgeSourceData.id, websiteUrl, companyName, qudemoId);
 
                 res.status(500).json({
                     success: false,
@@ -125,7 +132,7 @@ class KnowledgeController {
                 try {
                     const requestData = JSON.parse(error.config.data);
                     if (requestData.website_url) {
-                        await this.cleanupFailedWebsiteData(null, requestData.website_url, requestData.companyName || companyName);
+                        await this.cleanupFailedWebsiteData(null, requestData.website_url, requestData.companyName || companyName, requestData.qudemoId);
                     }
                 } catch (cleanupError) {
                     console.error('❌ Failed to cleanup failed website data:', cleanupError);
@@ -142,7 +149,7 @@ class KnowledgeController {
     /**
      * Clean up failed website data from both Supabase and Pinecone
      */
-    async cleanupFailedWebsiteData(knowledgeSourceId, websiteUrl, companyName) {
+    async cleanupFailedWebsiteData(knowledgeSourceId, websiteUrl, companyName, qudemoId = null) {
         console.log(`🧹 Cleaning up failed website data for: ${websiteUrl}`);
         
         try {
@@ -150,7 +157,7 @@ class KnowledgeController {
             if (knowledgeSourceId) {
                 console.log(`🗑️ Deleting from knowledge_sources table: ${knowledgeSourceId}`);
                 const { error: deleteError } = await supabase
-                    .from('knowledge_sources')
+                    .from('qudemo_knowledge_sources')
                     .delete()
                     .eq('id', knowledgeSourceId);
                 
@@ -165,7 +172,7 @@ class KnowledgeController {
             if (websiteUrl) {
                 console.log(`🗑️ Deleting from knowledge_sources table by URL: ${websiteUrl}`);
                 const { error: deleteError } = await supabase
-                    .from('knowledge_sources')
+                    .from('qudemo_knowledge_sources')
                     .delete()
                     .eq('source_url', websiteUrl)
                     .eq('source_type', 'website');
@@ -177,10 +184,14 @@ class KnowledgeController {
                 }
             }
 
-            // Delete from Pinecone
-            console.log(`🗑️ Deleting from Pinecone for company: ${companyName}`);
+            // Delete from Pinecone using the new endpoint with qudemo_id
+            console.log(`🗑️ Deleting from Pinecone for company: ${companyName} qudemo: ${qudemoId}`);
             try {
-                const response = await axios.delete(`${PYTHON_API_BASE_URL}/delete-website-data/${companyName}`, {
+                const endpoint = qudemoId 
+                    ? `${PYTHON_API_BASE_URL}/delete-website-data/${companyName}/${qudemoId}`
+                    : `${PYTHON_API_BASE_URL}/delete-website-data/${companyName}`;
+                
+                const response = await axios.delete(endpoint, {
                     data: {
                         website_url: websiteUrl,
                         knowledge_source_id: knowledgeSourceId
@@ -232,7 +243,7 @@ class KnowledgeController {
             };
 
             const { data: insertedData, error: insertError } = await supabase
-                .from('knowledge_sources')
+                .from('qudemo_knowledge_sources')
                 .insert([knowledgeSourceData])
                 .select();
 
@@ -264,7 +275,7 @@ class KnowledgeController {
             if (response.data.success) {
                 // Update status to completed
                 const { error: updateError } = await supabase
-                    .from('knowledge_sources')
+                    .from('qudemo_knowledge_sources')
                     .update({
                         status: 'completed',
                         processed_at: new Date().toISOString(),
@@ -328,9 +339,9 @@ class KnowledgeController {
             if (knowledgeSourceId) {
                 console.log(`🗑️ Deleting from knowledge_sources table: ${knowledgeSourceId}`);
                 const { error: deleteError } = await supabase
-                    .from('knowledge_sources')
-                    .delete()
-                    .eq('id', knowledgeSourceId);
+                .from('qudemo_knowledge_sources')
+                .delete()
+                .eq('id', knowledgeSourceId);
                 
                 if (deleteError) {
                     console.error(`❌ Failed to delete from knowledge_sources table:`, deleteError);
@@ -343,7 +354,7 @@ class KnowledgeController {
             if (fileName) {
                 console.log(`🗑️ Deleting from knowledge_sources table by title: ${fileName}`);
                 const { error: deleteError } = await supabase
-                    .from('knowledge_sources')
+                    .from('qudemo_knowledge_sources')
                     .delete()
                     .eq('title', `Document: ${fileName}`)
                     .eq('source_type', 'document');
@@ -387,7 +398,7 @@ class KnowledgeController {
      */
     async getKnowledgeSources(req, res) {
         try {
-            const { companyName } = req.params;
+            const { companyName, qudemoId } = req.params;
 
             if (!companyName) {
                 return res.status(400).json({
@@ -396,28 +407,50 @@ class KnowledgeController {
                 });
             }
 
-            console.log(`🔍 DEBUG: Getting knowledge sources for company: "${companyName}"`);
+            console.log(`🔍 DEBUG: Getting knowledge sources for company: "${companyName}" qudemo: "${qudemoId}"`);
 
-            // First try to get from Supabase (for legacy data)
-            const { data: supabaseSources, error: fetchError } = await supabase
-                .from('knowledge_sources')
-                .select('*')
-                .eq('company_name', companyName.toLowerCase())
-                .order('created_at', { ascending: false });
-
-            if (fetchError) {
+            // First try to get from Supabase (for qudemo data)
+            let supabaseSources = [];
+            try {
+                // Get qudemo IDs for this company first
+                const { data: qudemos, error: qudemoError } = await supabase
+                    .from('qudemos_new')
+                    .select('id')
+                    .eq('company_id', companyName.toLowerCase());
+                
+                if (!qudemoError && qudemos && qudemos.length > 0) {
+                    const qudemoIds = qudemos.map(q => q.id);
+                    
+                    // Get knowledge sources for all qudemos of this company
+                    const { data: sources, error: sourcesError } = await supabase
+                        .from('qudemo_knowledge_sources')
+                        .select('*')
+                        .in('qudemo_id', qudemoIds)
+                        .order('created_at', { ascending: false });
+                    
+                    if (!sourcesError && sources) {
+                        // Transform to include company_name for compatibility
+                        supabaseSources = sources.map(source => ({
+                            ...source,
+                            company_name: companyName.toLowerCase()
+                        }));
+                    }
+                }
+            } catch (fetchError) {
                 console.error('❌ Failed to fetch Supabase knowledge sources:', fetchError);
             }
 
-            // Then get from Python backend (Pinecone data)
+            // Then get from Python backend (Pinecone data) with qudemo isolation
             let pythonSources = [];
             try {
-                console.log(`🔍 DEBUG: Fetching from Python backend: ${PYTHON_API_BASE_URL}/knowledge/sources/${companyName}`);
+                // Use the new endpoint with qudemo_id if provided
+                const endpoint = qudemoId 
+                    ? `${PYTHON_API_BASE_URL}/knowledge/sources/${companyName}/${qudemoId}`
+                    : `${PYTHON_API_BASE_URL}/knowledge/sources/${companyName}`;
                 
-                const pythonResponse = await axios.get(
-                    `${PYTHON_API_BASE_URL}/knowledge/sources/${companyName}`,
-                    { timeout: 10000 }
-                );
+                console.log(`🔍 DEBUG: Fetching from Python backend: ${endpoint}`);
+                
+                const pythonResponse = await axios.get(endpoint, { timeout: 10000 });
 
                 if (pythonResponse.data.success && pythonResponse.data.data) {
                     console.log(`🔍 DEBUG: Python backend returned ${pythonResponse.data.data.sources?.length || 0} sources`);
@@ -493,7 +526,7 @@ class KnowledgeController {
             }
 
             const { data: knowledgeSource, error } = await supabase
-                .from('knowledge_sources')
+                .from('qudemo_knowledge_sources')
                 .select('*')
                 .eq('id', id)
                 .single();
@@ -532,9 +565,9 @@ class KnowledgeController {
     async getKnowledgeSourceContent(req, res) {
         try {
             const { id } = req.params;
-            const { company_name } = req.query;
+            const { company_name, qudemo_id } = req.query;
 
-            console.log(`🔍 DEBUG: Node.js received request - ID: ${id}, company_name from query: ${company_name}`);
+            console.log(`🔍 DEBUG: Node.js received request - ID: ${id}, company_name from query: ${company_name}, qudemo_id: ${qudemo_id}`);
             console.log(`🔍 DEBUG: Full query object:`, req.query);
 
             if (!id) {
@@ -552,7 +585,7 @@ class KnowledgeController {
             
             try {
                 const { data: supabaseSource, error: fetchError } = await supabase
-                    .from('knowledge_sources')
+                    .from('qudemo_knowledge_sources')
                     .select('*')
                     .eq('id', id)
                     .single();
@@ -587,9 +620,9 @@ class KnowledgeController {
             }
             console.log(`🔍 DEBUG: Final companyName before Python API call: ${companyName}`);
 
-            // Call Python API to get content from Pinecone
+            // Call Python API to get content from Pinecone with qudemo isolation
             try {
-                console.log(`🔍 DEBUG: Fetching content from Python backend for source: ${id}, company: ${companyName}`);
+                console.log(`🔍 DEBUG: Fetching content from Python backend for source: ${id}, company: ${companyName}, qudemo: ${qudemo_id}`);
                 
                 // Handle Settle Help Center ID specially
                 let pythonSourceId = id;
@@ -599,14 +632,17 @@ class KnowledgeController {
                 
                 console.log(`🔍 DEBUG: Calling Python API with source ID: ${pythonSourceId}`);
                 console.log(`🔍 DEBUG: Company name being sent: ${companyName}`);
+                console.log(`🔍 DEBUG: Qudemo ID being sent: ${qudemo_id}`);
                 
-                const response = await axios.get(
-                    `${PYTHON_API_BASE_URL}/knowledge/source/${pythonSourceId}/content`,
-                    { 
-                        params: { company_name: companyName },
-                        timeout: PYTHON_API_TIMEOUT 
-                    }
-                );
+                // Use the new endpoint with qudemo_id if provided
+                const endpoint = qudemo_id 
+                    ? `${PYTHON_API_BASE_URL}/knowledge/source/${pythonSourceId}/content/${qudemo_id}`
+                    : `${PYTHON_API_BASE_URL}/knowledge/source/${pythonSourceId}/content`;
+                
+                const response = await axios.get(endpoint, { 
+                    params: { company_name: companyName },
+                    timeout: PYTHON_API_TIMEOUT 
+                });
 
                 if (response.data.success) {
                     console.log('✅ Python API returned success!');
@@ -670,7 +706,7 @@ class KnowledgeController {
 
             // First get the knowledge source to get company name
             const { data: knowledgeSource, error: fetchError } = await supabase
-                .from('knowledge_sources')
+                .from('qudemo_knowledge_sources')
                 .select('*')
                 .eq('id', id)
                 .single();
@@ -711,7 +747,7 @@ class KnowledgeController {
 
             // Delete from database
             const { error: deleteError } = await supabase
-                .from('knowledge_sources')
+                .from('qudemo_knowledge_sources')
                 .delete()
                 .eq('id', id);
 
@@ -761,7 +797,7 @@ class KnowledgeController {
 
             // Get database summary
             const { data: knowledgeSources, error } = await supabase
-                .from('knowledge_sources')
+                .from('qudemo_knowledge_sources')
                 .select('*')
                 .eq('company_name', companyName.toLowerCase());
 

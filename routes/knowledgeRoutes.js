@@ -31,6 +31,13 @@ router.post('/process-document', uploadMemory.single('file'), validateRequest(pr
 router.get('/sources/:companyName', knowledgeController.getKnowledgeSources);
 
 /**
+ * @route   GET /api/knowledge/sources/:companyName/:qudemoId
+ * @desc    Get all knowledge sources for a specific qudemo
+ * @access  Public
+ */
+router.get('/sources/:companyName/:qudemoId', knowledgeController.getKnowledgeSources);
+
+/**
  * @route   GET /api/knowledge/source/:id
  * @desc    Get knowledge source by ID
  * @access  Public

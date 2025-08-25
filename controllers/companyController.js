@@ -1,9 +1,9 @@
 const { createClient } = require('@supabase/supabase-js');
 
-// Initialize Supabase client
+// Create Supabase client
 const supabase = createClient(
-    process.env.SUPABASE_URL,
-    process.env.SUPABASE_SERVICE_ROLE_KEY
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
 const companyController = {
@@ -14,7 +14,24 @@ const companyController = {
     
         try {
             const userId = req.user.userId || req.user.id;
-            const { name, displayName, description, website, logo } = req.body;
+            const { name, description, website, logo } = req.body;
+
+            // Check if companies table exists
+            console.log('🔍 Checking if companies table exists...');
+            const { data: tableCheck, error: tableError } = await supabase
+                .from('companies')
+                .select('id')
+                .limit(1);
+
+            if (tableError) {
+                console.error('❌ Table check error:', tableError);
+                return res.status(500).json({
+                    success: false,
+                    error: 'Database table not found. Please run the database schema first.',
+                    details: tableError.message
+                });
+            }
+            console.log('✅ Companies table exists, proceeding with company creation');
 
             // 1. Check if user already has a company
             const { data: userCompany, error: userCompanyError } = await supabase
@@ -30,34 +47,42 @@ const companyController = {
                 return res.status(409).json({ success: false, error: 'A company has already been created for this user.' });
             }
 
-            // Check if company name already exists
-            const { data: existingCompany, error: checkError } = await supabase
+            // Check if this user already has a company with this name (optional check)
+            // Note: Different users can have companies with the same name
+            const { data: userCompanyWithName, error: nameCheckError } = await supabase
                 .from('companies')
                 .select('id, name')
+                .eq('user_id', userId)
                 .eq('name', name)
                 .single();
 
-            if (checkError && checkError.code !== 'PGRST116') {
+            if (nameCheckError && nameCheckError.code !== 'PGRST116') {
                 return res.status(500).json({
                     success: false,
-                    error: 'Error checking company existence'
+                    error: 'Error checking company name'
                 });
             }
 
-            if (existingCompany) {
+            if (userCompanyWithName) {
                 return res.status(400).json({
                     success: false,
-                    error: 'Company name already exists. Please choose a different name.'
+                    error: 'You already have a company with this name. Please choose a different name.'
                 });
             }
 
             // Create company in database
+            console.log('🔍 Creating company with data:', {
+                user_id: userId,
+                name,
+                is_active: true
+            });
+
             const { data: company, error: insertError } = await supabase
                 .from('companies')
                 .insert({
                     user_id: userId,
                     name,
-                    display_name: displayName,
+                    display_name: name, // Use name as display_name for backward compatibility
                     is_active: true,
                     created_at: new Date().toISOString()
                 })
@@ -65,9 +90,17 @@ const companyController = {
                 .single();
 
             if (insertError) {
+                console.error('❌ Company creation error:', insertError);
+                console.error('❌ Error details:', {
+                    code: insertError.code,
+                    message: insertError.message,
+                    details: insertError.details,
+                    hint: insertError.hint
+                });
                 return res.status(500).json({
                     success: false,
-                    error: 'Failed to create company in database'
+                    error: `Failed to create company in database: ${insertError.message}`,
+                    details: insertError.details
                 });
             }
 
@@ -115,6 +148,63 @@ const companyController = {
             res.json({ success: true, data: [company] }); // Return as an array to match getAllCompanies
         } catch (error) {
             console.error('Get user company error:', error);
+            res.status(500).json({ success: false, error: 'Internal server error' });
+        }
+    },
+
+    /**
+     * Fix user company association (utility endpoint)
+     */
+    async fixUserCompanyAssociation(req, res) {
+        try {
+            const { id: userId } = req.user;
+            const { companyId } = req.body;
+
+            if (!companyId) {
+                return res.status(400).json({ 
+                    success: false, 
+                    error: 'Company ID is required' 
+                });
+            }
+
+            // First check if the company exists
+            const { data: company, error: companyError } = await supabase
+                .from('companies')
+                .select('*')
+                .eq('id', companyId)
+                .single();
+
+            if (companyError || !company) {
+                return res.status(404).json({ 
+                    success: false, 
+                    error: 'Company not found' 
+                });
+            }
+
+            // Update the company to associate it with the current user
+            const { data: updatedCompany, error: updateError } = await supabase
+                .from('companies')
+                .update({ user_id: userId })
+                .eq('id', companyId)
+                .select()
+                .single();
+
+            if (updateError) {
+                console.error('Update company error:', updateError);
+                return res.status(500).json({ 
+                    success: false, 
+                    error: 'Failed to update company association' 
+                });
+            }
+
+            res.json({ 
+                success: true, 
+                message: 'Company association fixed successfully',
+                data: updatedCompany
+            });
+
+        } catch (error) {
+            console.error('Fix user company association error:', error);
             res.status(500).json({ success: false, error: 'Internal server error' });
         }
     },
@@ -309,78 +399,23 @@ const companyController = {
 
             console.log(`🗑️ Found company: ${company.name} (${company.display_name})`);
 
-            // Step 1: Delete all data from Supabase in the correct order
-            console.log('🗑️ Step 1: Deleting data from Supabase...');
+            // Step 1: Delete company from Supabase (CASCADE will handle all related data)
+            console.log('🗑️ Step 1: Deleting company and all related data from Supabase...');
             
-            const deletionSteps = [
-                {
-                    table: 'user_interaction',
-                    description: 'User interactions',
-                    condition: { company_id: companyId }
-                },
-                {
-                    table: 'knowledge_sources',
-                    description: 'Knowledge sources',
-                    condition: { company_id: companyId }
-                },
-                {
-                    table: 'qudemos',
-                    description: 'Video demos',
-                    condition: { company_id: companyId }
-                },
-                {
-                    table: 'videos',
-                    description: 'Videos',
-                    condition: { company_id: companyId }
-                },
-                {
-                    table: 'company_leads',
-                    description: 'Company leads',
-                    condition: { company_id: companyId }
-                },
-                {
-                    table: 'user_companies',
-                    description: 'User company associations',
-                    condition: { company_id: companyId }
-                }
-            ];
+            const { error: deleteError } = await supabase
+                .from('companies')
+                .delete()
+                .eq('id', companyId);
 
-            for (const step of deletionSteps) {
-                try {
-                    console.log(`🗑️ Deleting ${step.description}...`);
-                    const { error: deleteError } = await supabase
-                        .from(step.table)
-                        .delete()
-                        .match(step.condition);
-
-                    if (deleteError) {
-                        // Check if it's a "table doesn't exist" error
-                        if (deleteError.message && deleteError.message.includes('does not exist')) {
-                            console.log(`⚠️ Table '${step.table}' does not exist, skipping...`);
-                            continue; // Skip this table and continue with others
-                        }
-                        
-                        console.error(`❌ Failed to delete ${step.description}:`, deleteError);
-                        return res.status(500).json({
-                            success: false,
-                            error: `Failed to delete ${step.description}: ${deleteError.message}`
-                        });
-                    }
-                    console.log(`✅ Deleted ${step.description}`);
-                } catch (error) {
-                    // Check if it's a "table doesn't exist" error
-                    if (error.message && error.message.includes('does not exist')) {
-                        console.log(`⚠️ Table '${step.table}' does not exist, skipping...`);
-                        continue; // Skip this table and continue with others
-                    }
-                    
-                    console.error(`❌ Error deleting ${step.description}:`, error);
-                    return res.status(500).json({
-                        success: false,
-                        error: `Error deleting ${step.description}: ${error.message}`
-                    });
-                }
+            if (deleteError) {
+                console.error('❌ Failed to delete company:', deleteError);
+                return res.status(500).json({
+                    success: false,
+                    error: `Failed to delete company: ${deleteError.message}`
+                });
             }
+            
+            console.log('✅ Company and all related data deleted from Supabase');
 
             // Step 2: Delete the company itself
             console.log('🗑️ Step 2: Deleting company record...');

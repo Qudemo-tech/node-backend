@@ -1,4 +1,10 @@
-const supabase = require('../config/database');
+const { createClient } = require('@supabase/supabase-js');
+
+// Create Supabase client
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY
+);
 const asyncQueue = require('../config/asyncQueue');
 const { v4: uuidv4 } = require('uuid');
 

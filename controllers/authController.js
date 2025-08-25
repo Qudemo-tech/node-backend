@@ -1,13 +1,13 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { createClient } = require('@supabase/supabase-js');
-const { generateToken, verifyRefreshToken } = require('../middleware/auth');
 
-// Initialize Supabase client
+// Create Supabase client
 const supabase = createClient(
-    process.env.SUPABASE_URL,
-    process.env.SUPABASE_SERVICE_ROLE_KEY
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY
 );
+const { generateToken, verifyRefreshToken } = require('../middleware/auth');
 
 const authController = {
     /**
