@@ -115,7 +115,7 @@ const getQudemos = async (req, res) => {
         // Get company name from the company data
         const companyName = companyAccess.name || 'mycomptest';
         
-        const pythonApiUrl = process.env.PYTHON_API_URL || 'http://localhost:5001';
+        const pythonApiUrl = process.env.PYTHON_API_BASE_URL || process.env.PYTHON_API_URL || 'http://localhost:5001';
         const fetch = (await import('node-fetch')).default;
         const pythonResponse = await fetch(`${pythonApiUrl}/knowledge/sources/${companyName}/${qudemo.id}`);
         
@@ -221,7 +221,7 @@ const getQudemo = async (req, res) => {
       // Get company name from the company data
       const companyName = companyAccess.name || 'mycomptest';
       
-      const pythonApiUrl = process.env.PYTHON_API_URL || 'http://localhost:5001';
+      const pythonApiUrl = process.env.PYTHON_API_BASE_URL || process.env.PYTHON_API_URL || 'http://localhost:5001';
       const pythonResponse = await fetch(`${pythonApiUrl}/knowledge/sources/${companyName}/${id}`);
       
       if (pythonResponse.ok) {

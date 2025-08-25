@@ -40,7 +40,7 @@ router.get('/test-data/:companyId', async (req, res) => {
     // Try to get knowledge sources from Python backend for this qudemo
     let pythonKnowledgeSources = [];
     try {
-      const pythonApiUrl = process.env.PYTHON_API_URL || 'http://localhost:5001';
+      const pythonApiUrl = process.env.PYTHON_API_BASE_URL || process.env.PYTHON_API_URL || 'http://localhost:5001';
       const fetch = (await import('node-fetch')).default;
       const pythonResponse = await fetch(`${pythonApiUrl}/knowledge/sources/${companyName}/${testQudemoId}`);
       
@@ -78,7 +78,7 @@ router.get('/test-data/:companyId', async (req, res) => {
         companyId,
         testQudemoId,
         companyName,
-        pythonApiUrl: process.env.PYTHON_API_URL || 'http://localhost:5001'
+        pythonApiUrl: process.env.PYTHON_API_BASE_URL || process.env.PYTHON_API_URL || 'http://localhost:5001'
       }
     });
 
@@ -157,7 +157,7 @@ router.post('/process-content/:companyName/:qudemoId', authenticateToken, async 
     console.log(`📹 Videos: ${video_urls?.length || 0}, 🌐 Website: ${website_url || 'None'}`);
     
     // Call Python backend to process content
-    const pythonApiUrl = process.env.PYTHON_API_URL || 'http://localhost:5001';
+    const pythonApiUrl = process.env.PYTHON_API_BASE_URL || process.env.PYTHON_API_URL || 'http://localhost:5001';
     const fetch = (await import('node-fetch')).default;
     const response = await fetch(`${pythonApiUrl}/process-qudemo-content/${companyName}/${qudemoId}`, {
       method: 'POST',
@@ -291,7 +291,7 @@ router.post('/sync-existing-data/:qudemoId', authenticateToken, async (req, res)
     console.log(`🔄 Syncing existing data for qudemo ${qudemoId} in company ${companyName}`);
     
     // Call Python backend to get knowledge sources
-    const pythonApiUrl = process.env.PYTHON_API_URL || 'http://localhost:5001';
+    const pythonApiUrl = process.env.PYTHON_API_BASE_URL || process.env.PYTHON_API_URL || 'http://localhost:5001';
     const fetch = (await import('node-fetch')).default;
     const response = await fetch(`${pythonApiUrl}/knowledge/sources/${companyName}/${qudemoId}`, {
       method: 'GET'
