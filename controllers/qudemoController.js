@@ -591,6 +591,8 @@ const deleteQudemo = async (req, res) => {
     const { id } = req.params;
     const userId = req.user.userId || req.user.id;
 
+    console.log(`🗑️ Delete request - Qudemo ID: ${id}, User ID: ${userId}`);
+
     // Get qudemo and validate access
     const { data: qudemo, error: qudemoError } = await supabase
       .from('qudemos_new')
@@ -599,25 +601,47 @@ const deleteQudemo = async (req, res) => {
       .single();
 
     if (qudemoError || !qudemo) {
+      console.log(`❌ Qudemo not found - ID: ${id}, Error:`, qudemoError);
       return res.status(404).json({
         success: false,
         error: 'Qudemo not found'
       });
     }
 
+    console.log(`✅ Qudemo found - Company ID: ${qudemo.company_id}`);
+
     // Validate company access
     const { data: companyAccess, error: accessError } = await supabase
-      .from('user_companies')
+      .from('companies')
       .select('*')
       .eq('user_id', userId)
-      .eq('company_id', qudemo.company_id);
+      .eq('id', qudemo.company_id)
+      .single();
 
-    if (accessError || companyAccess.length === 0) {
+    if (accessError) {
+      if (accessError.code === 'PGRST116') {
+        console.log('❌ No company found for user:', userId);
+        return res.status(404).json({
+          success: false,
+          error: 'No company found. Please create a company first.'
+        });
+      }
+      console.error('❌ Company access error:', accessError);
+      return res.status(500).json({
+        success: false,
+        error: 'Database error checking company access'
+      });
+    }
+
+    if (!companyAccess) {
+      console.log('❌ No company access found for user:', userId, 'company:', qudemo.company_id);
       return res.status(403).json({
         success: false,
         error: 'Access denied to this qudemo'
       });
     }
+
+    console.log('✅ Company access validated for deletion');
 
     console.log(`🗑️ Deleting qudemo ${id} and all associated data...`);
 
@@ -676,18 +700,32 @@ const addVideo = async (req, res) => {
     const { videoUrl, videoType, title, description, duration, thumbnail } = req.body;
     const userId = req.user.userId || req.user.id;
 
-    // Validate qudemo access
+    // Get qudemo and validate access
     const { data: qudemo, error: qudemoError } = await supabase
       .from('qudemos_new')
-      .select('qudemos_new.*, user_companies.user_id')
-      .eq('qudemos_new.id', qudemoId)
-      .eq('user_companies.user_id', userId)
+      .select('*')
+      .eq('id', qudemoId)
       .single();
 
     if (qudemoError || !qudemo) {
       return res.status(404).json({
         success: false,
-        error: 'Qudemo not found or access denied'
+        error: 'Qudemo not found'
+      });
+    }
+
+    // Validate company access
+    const { data: companyAccess, error: accessError } = await supabase
+      .from('companies')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('id', qudemo.company_id)
+      .single();
+
+    if (accessError || !companyAccess) {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied to this qudemo'
       });
     }
 
@@ -751,18 +789,32 @@ const removeVideo = async (req, res) => {
     const { qudemoId, videoId } = req.params;
     const userId = req.user.userId || req.user.id;
 
-    // Validate qudemo access
+    // Get qudemo and validate access
     const { data: qudemo, error: qudemoError } = await supabase
       .from('qudemos_new')
-      .select('qudemos_new.*, user_companies.user_id')
-      .eq('qudemos_new.id', qudemoId)
-      .eq('user_companies.user_id', userId)
+      .select('*')
+      .eq('id', qudemoId)
       .single();
 
     if (qudemoError || !qudemo) {
       return res.status(404).json({
         success: false,
-        error: 'Qudemo not found or access denied'
+        error: 'Qudemo not found'
+      });
+    }
+
+    // Validate company access
+    const { data: companyAccess, error: accessError } = await supabase
+      .from('companies')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('id', qudemo.company_id)
+      .single();
+
+    if (accessError || !companyAccess) {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied to this qudemo'
       });
     }
 
@@ -802,18 +854,32 @@ const addKnowledgeSource = async (req, res) => {
     const { sourceType, sourceUrl, title, description } = req.body;
     const userId = req.user.userId || req.user.id;
 
-    // Validate qudemo access
+    // Get qudemo and validate access
     const { data: qudemo, error: qudemoError } = await supabase
       .from('qudemos_new')
-      .select('qudemos_new.*, user_companies.user_id')
-      .eq('qudemos_new.id', qudemoId)
-      .eq('user_companies.user_id', userId)
+      .select('*')
+      .eq('id', qudemoId)
       .single();
 
     if (qudemoError || !qudemo) {
       return res.status(404).json({
         success: false,
-        error: 'Qudemo not found or access denied'
+        error: 'Qudemo not found'
+      });
+    }
+
+    // Validate company access
+    const { data: companyAccess, error: accessError } = await supabase
+      .from('companies')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('id', qudemo.company_id)
+      .single();
+
+    if (accessError || !companyAccess) {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied to this qudemo'
       });
     }
 
@@ -865,18 +931,32 @@ const removeKnowledgeSource = async (req, res) => {
     const { qudemoId, sourceId } = req.params;
     const userId = req.user.userId || req.user.id;
 
-    // Validate qudemo access
+    // Get qudemo and validate access
     const { data: qudemo, error: qudemoError } = await supabase
       .from('qudemos_new')
-      .select('qudemos_new.*, user_companies.user_id')
-      .eq('qudemos_new.id', qudemoId)
-      .eq('user_companies.user_id', userId)
+      .select('*')
+      .eq('id', qudemoId)
       .single();
 
     if (qudemoError || !qudemo) {
       return res.status(404).json({
         success: false,
-        error: 'Qudemo not found or access denied'
+        error: 'Qudemo not found'
+      });
+    }
+
+    // Validate company access
+    const { data: companyAccess, error: accessError } = await supabase
+      .from('companies')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('id', qudemo.company_id)
+      .single();
+
+    if (accessError || !companyAccess) {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied to this qudemo'
       });
     }
 
@@ -941,12 +1021,13 @@ const chat = async (req, res) => {
 
       // Check company access
       const { data: access, error: accessError } = await supabase
-        .from('user_companies')
+        .from('companies')
         .select('*')
         .eq('user_id', userId)
-        .eq('company_id', qudemo.company_id);
+        .eq('id', qudemo.company_id)
+        .single();
 
-      if (accessError || !access || access.length === 0) {
+      if (accessError || !access) {
         console.error('❌ Access denied to qudemo:', accessError);
         return res.status(403).json({
           success: false,
