@@ -115,6 +115,9 @@ const getQudemos = async (req, res) => {
         // Get company name from the company data
         const companyName = companyAccess.name || 'mycomptest';
         
+        console.log(`🔍 Fetching knowledge sources for qudemo ${qudemo.id} using company name: "${companyName}"`);
+        console.log(`🔍 Company data from Supabase:`, { id: companyAccess.id, name: companyAccess.name });
+        
         const pythonApiUrl = process.env.PYTHON_API_BASE_URL || process.env.PYTHON_API_URL || 'http://localhost:5001';
         const fetch = (await import('node-fetch')).default;
         const pythonResponse = await fetch(`${pythonApiUrl}/knowledge/sources/${companyName}/${qudemo.id}`);
@@ -124,7 +127,11 @@ const getQudemos = async (req, res) => {
           if (pythonResult.success && pythonResult.data && pythonResult.data.sources) {
             pythonKnowledgeSources = pythonResult.data.sources;
             console.log(`✅ Fetched ${pythonKnowledgeSources.length} knowledge sources from Python backend for qudemo ${qudemo.id}`);
+          } else {
+            console.log(`⚠️ Python response for qudemo ${qudemo.id}:`, pythonResult);
           }
+        } else {
+          console.log(`❌ Python API error for qudemo ${qudemo.id}: ${pythonResponse.status} ${pythonResponse.statusText}`);
         }
       } catch (pythonError) {
         console.log(`⚠️ Could not fetch from Python backend for qudemo ${qudemo.id}:`, pythonError.message);
@@ -266,6 +273,57 @@ const getQudemo = async (req, res) => {
       success: false,
       error: 'Failed to fetch qudemo'
     });
+  }
+};
+
+// Helper function to completely delete a qudemo and all related data
+const deleteQudemoCompletely = async (qudemoId) => {
+  try {
+    console.log(`🗑️ Deleting qudemo ${qudemoId} completely...`);
+    
+    // Delete in order to respect foreign key constraints
+    const { error: videosError } = await supabase
+      .from('qudemo_videos')
+      .delete()
+      .eq('qudemo_id', qudemoId);
+    
+    if (videosError) {
+      console.error(`❌ Error deleting videos for qudemo ${qudemoId}:`, videosError);
+    }
+    
+    const { error: knowledgeError } = await supabase
+      .from('qudemo_knowledge_sources')
+      .delete()
+      .eq('qudemo_id', qudemoId);
+    
+    if (knowledgeError) {
+      console.error(`❌ Error deleting knowledge sources for qudemo ${qudemoId}:`, knowledgeError);
+    }
+    
+    const { error: analyticsError } = await supabase
+      .from('qudemo_analytics')
+      .delete()
+      .eq('qudemo_id', qudemoId);
+    
+    if (analyticsError) {
+      console.error(`❌ Error deleting analytics for qudemo ${qudemoId}:`, analyticsError);
+    }
+    
+    const { error: qudemoError } = await supabase
+      .from('qudemos_new')
+      .delete()
+      .eq('id', qudemoId);
+    
+    if (qudemoError) {
+      console.error(`❌ Error deleting qudemo ${qudemoId}:`, qudemoError);
+      return false;
+    }
+    
+    console.log(`✅ Qudemo ${qudemoId} completely deleted`);
+    return true;
+  } catch (error) {
+    console.error(`❌ Error in deleteQudemoCompletely for ${qudemoId}:`, error);
+    return false;
   }
 };
 
@@ -1221,10 +1279,11 @@ module.exports = {
   createQudemo,
   updateQudemo,
   deleteQudemo,
+  deleteQudemoCompletely,
   addVideo,
   removeVideo,
   addKnowledgeSource,
   removeKnowledgeSource,
   chat,
   getQudemoDataForPython
-}; 
+};

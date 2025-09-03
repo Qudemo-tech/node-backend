@@ -167,21 +167,51 @@ router.post('/process-content/:companyName/:qudemoId', authenticateToken, async 
       body: JSON.stringify({
         video_urls: video_urls || [],
         website_url: website_url || null
-      })
+      }),
+      // Set a very long timeout for Python backend processing (10 minutes)
+      signal: AbortSignal.timeout(10 * 60 * 1000)
     });
     
     const result = await response.json();
     
-    if (response.ok) {
+    if (response.ok && result.success) {
       console.log(`✅ Python backend processing completed:`, result);
       
-      // Update Supabase tables with the processed content information
+      // Verify that all content was processed successfully
+      const expectedVideos = video_urls?.length || 0;
+      const expectedWebsite = website_url ? 1 : 0;
+      const totalExpected = expectedVideos + expectedWebsite;
+      
+      // Check if all expected content was processed
+      let processedCount = 0;
+      const resultData = result.data || result; // Handle both nested and flat response structures
+      if (resultData.videos && Array.isArray(resultData.videos)) {
+        processedCount += resultData.videos.length;
+      }
+      if (resultData.websites && Array.isArray(resultData.websites)) {
+        processedCount += resultData.websites.length;
+      }
+      
+      console.log(`📊 Processing verification: Expected ${totalExpected}, Processed ${processedCount}`);
+      
+      // If not all content was processed, log warning but don't delete
+      if (processedCount < totalExpected) {
+        console.warn(`⚠️ Incomplete processing detected. Expected ${totalExpected}, got ${processedCount}. Qudemo will be preserved.`);
+      }
+      
+      // All content processed successfully - update Supabase tables
       try {
         const { createClient } = require('@supabase/supabase-js');
         const supabase = createClient(
           process.env.SUPABASE_URL,
           process.env.SUPABASE_SERVICE_ROLE_KEY
         );
+        
+        // Mark qudemo as processed and active only after successful processing
+        await supabase
+          .from('qudemos_new')
+          .update({ status: 'processed', is_active: true, updated_at: new Date().toISOString() })
+          .eq('id', qudemoId);
         
         // Update videos in qudemo_videos table
         if (video_urls && video_urls.length > 0) {
@@ -215,6 +245,7 @@ router.post('/process-content/:companyName/:qudemoId', authenticateToken, async 
               
               if (videoError) {
                 console.error(`❌ Error adding video ${i + 1}:`, videoError);
+                throw new Error(`Failed to add video ${i + 1}: ${videoError.message}`);
               } else {
                 console.log(`✅ Added video ${i + 1} to Supabase`);
               }
@@ -246,14 +277,14 @@ router.post('/process-content/:companyName/:qudemoId', authenticateToken, async 
                 source_url: website_url,
                 title: `Website: ${new URL(website_url).hostname}`,
                 description: 'Website knowledge source',
-                status: 'processed',
-                processed_at: new Date().toISOString()
+                status: 'processed'
               });
             
             if (knowledgeError) {
               console.error(`❌ Error adding knowledge source:`, knowledgeError);
+              throw new Error(`Failed to add website knowledge source: ${knowledgeError.message}`);
             } else {
-              console.log(`✅ Added website knowledge source to Supabase`);
+              console.log(`✅ Website knowledge source added to Supabase`);
             }
           } else {
             console.log(`ℹ️ Website knowledge source already exists in Supabase`);
@@ -263,21 +294,62 @@ router.post('/process-content/:companyName/:qudemoId', authenticateToken, async 
         console.log(`✅ Supabase tables updated successfully`);
         
       } catch (supabaseError) {
-        console.error(`⚠️ Warning: Failed to update Supabase tables:`, supabaseError);
-        // Don't fail the request, just log the warning
+        console.error(`❌ Critical error updating Supabase tables:`, supabaseError);
+        
+        // Log the error but don't delete the qudemo - let the user decide
+        console.log(`⚠️ Supabase update failed, but qudemo will be preserved`);
+        
+        // Return success with warning instead of deleting
+        return res.json({
+          ...result,
+          message: 'Content processed successfully but database update had issues',
+          warning: 'Some database updates failed, but content was processed',
+          processed_count: processedCount,
+          expected_count: totalExpected
+        });
       }
       
-      res.json(result);
+      res.json({
+        ...result,
+        message: 'All content processed successfully and database updated',
+        processed_count: processedCount,
+        expected_count: totalExpected
+      });
     } else {
       console.error(`❌ Python backend processing failed:`, result);
-      res.status(response.status).json(result);
+      
+      // Log the processing failure but don't delete the qudemo
+      console.log(`⚠️ Content processing failed, but qudemo will be preserved`);
+      
+      return res.status(400).json({
+        success: false,
+        error: 'Content processing failed',
+        details: result.error || 'Unknown processing error. Qudemo has been preserved.',
+        qudemo_deleted: false
+      });
     }
   } catch (error) {
     console.error('❌ Error processing qudemo content:', error);
+    
+    // Final cleanup attempt if we reach this point
+    try {
+      const { companyName, qudemoId } = req.params;
+      const { createClient } = require('@supabase/supabase-js');
+      const supabase = createClient(
+        process.env.SUPABASE_URL,
+        process.env.SUPABASE_SERVICE_ROLE_KEY
+      );
+      
+      console.log(`⚠️ Unexpected error occurred, but qudemo will be preserved`);
+    } catch (cleanupError) {
+      console.error(`❌ Failed to cleanup qudemo after unexpected error:`, cleanupError);
+    }
+    
     res.status(500).json({
       success: false,
       error: 'Failed to process qudemo content',
-      details: error.message
+      details: error.message,
+      qudemo_deleted: false
     });
   }
 });

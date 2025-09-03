@@ -93,21 +93,48 @@ class QAController {
 
                 if (response.data && response.data.success) {
                     console.log(`✅ Qudemo question answered successfully`);
+                    console.log(`🔍 Python response data:`, JSON.stringify(response.data, null, 2));
                     
                     // Log the interaction
                     await this.logQudemoInteraction(qudemoId, userId, question, response.data);
 
-                    return res.json({
+                    // Map Python response fields to frontend
+                    const primarySource = response.data.primary_source || response.data.answer_source || 'unknown';
+                    const sources = Array.isArray(response.data.sources) ? response.data.sources : [];
+
+                    // Extract video data directly from Python response (not from sources)
+                    let videoUrl = response.data.video_url;
+                    let start = response.data.start;
+                    let end = response.data.end;
+                    let videoTitle = response.data.video_title;
+
+                    // Fallback: if no direct video data, try to find in sources
+                    if (!videoUrl && primarySource === 'video') {
+                        const firstVideo = sources.find(s => (s.type === 'video' || s.content_type === 'video'));
+                        if (firstVideo) {
+                            videoUrl = firstVideo.video_url || firstVideo.url;
+                            start = firstVideo.start_timestamp || (typeof firstVideo.timestamp === 'number' ? firstVideo.timestamp : undefined);
+                            end = firstVideo.end_timestamp;
+                            videoTitle = firstVideo.title;
+                        }
+                    }
+
+                    const finalResponse = {
                         success: true,
                         answer: response.data.answer,
-                        sources: response.data.sources || [],
-                        video_url: response.data.video_url,
-                        start: response.data.start,
-                        end: response.data.end,
-                        video_title: response.data.video_title,
-                        answer_source: response.data.answer_source,
-                        confidence: response.data.confidence
-                    });
+                        sources: sources,
+                        video_url: videoUrl,
+                        start: start,
+                        end: end,
+                        video_title: videoTitle,
+                        answer_source: primarySource,
+                        confidence: response.data.confidence_score || response.data.confidence
+                    };
+                    
+                    console.log(`🎬 Final response to frontend:`, JSON.stringify(finalResponse, null, 2));
+                    console.log(`🎬 Video URL: ${videoUrl}, Start: ${start}, End: ${end}`);
+                    
+                    return res.json(finalResponse);
                 } else {
                     throw new Error(response.data.error || 'Failed to get answer');
                 }

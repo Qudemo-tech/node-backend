@@ -15,13 +15,19 @@ const authController = {
      */
     async register(req, res) {
         try {
-            const { email, password, firstName, lastName, companyName, role = 'user' } = req.body;
+            let { email, password, firstName, lastName, companyName, role = 'user' } = req.body;
 
-            // Check if user already exists
+            // Normalize email
+            const normalizedEmail = (email || '').trim().toLowerCase();
+            if (!normalizedEmail) {
+                return res.status(400).json({ success: false, error: 'Email is required' });
+            }
+
+            // Check if user already exists (by normalized email)
             const { data: existingUser, error: checkError } = await supabase
                 .from('users')
                 .select('id')
-                .eq('email', email)
+                .eq('email', normalizedEmail)
                 .single();
 
             if (checkError && checkError.code !== 'PGRST116') {
@@ -42,11 +48,11 @@ const authController = {
             const saltRounds = 12;
             const hashedPassword = await bcrypt.hash(password, saltRounds);
 
-            // Create user
+            // Create user with normalized email
             const { data: user, error: insertError } = await supabase
                 .from('users')
                 .insert({
-                    email,
+                    email: normalizedEmail,
                     password_hash: hashedPassword,
                     first_name: firstName,
                     last_name: lastName,
@@ -67,11 +73,12 @@ const authController = {
             // If company name is provided, create company and link user
             if (companyName) {
                 try {
+                    const normalizedCompany = companyName.trim();
                     // Check if company exists
                     const { data: existingCompany, error: companyCheckError } = await supabase
                         .from('companies')
                         .select('id, name')
-                        .eq('name', companyName)
+                        .eq('name', normalizedCompany)
                         .single();
 
                     if (companyCheckError && companyCheckError.code !== 'PGRST116') {
@@ -93,7 +100,7 @@ const authController = {
                         const { data: company, error: companyError } = await supabase
                             .from('companies')
                             .insert({
-                                name: companyName,
+                                name: normalizedCompany,
                                 is_active: true,
                                 created_at: new Date().toISOString()
                             })
@@ -166,13 +173,19 @@ const authController = {
      */
     async login(req, res) {
         try {
-            const { email, password } = req.body;
+            let { email, password } = req.body;
 
-            // Get user with password hash
+            // Normalize email
+            const normalizedEmail = (email || '').trim().toLowerCase();
+            if (!normalizedEmail) {
+                return res.status(400).json({ success: false, error: 'Email is required' });
+            }
+
+            // Get user with password hash using normalized email
             const { data: user, error } = await supabase
                 .from('users')
                 .select('*')
-                .eq('email', email)
+                .eq('email', normalizedEmail)
                 .single();
 
             if (error || !user) {
