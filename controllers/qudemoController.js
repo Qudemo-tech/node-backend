@@ -156,9 +156,16 @@ const getQudemos = async (req, res) => {
       };
     }));
 
+    // Filter out QuDemos that have no content (no videos and no knowledge sources)
+    const qudemosWithContent = formattedQudemos.filter(qudemo => 
+      qudemo.video_count > 0 || qudemo.knowledge_count > 0
+    );
+
+    console.log(`📊 Filtered QuDemos: ${qudemosWithContent.length} with content out of ${formattedQudemos.length} total`);
+
     res.json({
       success: true,
-      data: formattedQudemos
+      data: qudemosWithContent
     });
 
   } catch (error) {
@@ -721,17 +728,35 @@ const deleteQudemo = async (req, res) => {
 
     console.log(`📊 Associated data counts - Videos: ${videos?.length || 0}, Knowledge Sources: ${knowledgeSources?.length || 0}, Analytics: ${analytics?.length || 0}`);
 
-    // Delete qudemo (cascade will handle related records)
-    const { error: deleteError } = await supabase
-      .from('qudemos_new')
-      .delete()
-      .eq('id', id);
+    // Clean up Pinecone data first
+    try {
+      const companyName = companyAccess.name || 'mycomptest';
+      console.log(`🧹 Cleaning up Pinecone data for company: ${companyName}, qudemo: ${id}`);
+      
+      const pythonApiUrl = process.env.PYTHON_API_BASE_URL || process.env.PYTHON_API_URL || 'http://localhost:5001';
+      const fetch = (await import('node-fetch')).default;
+      const pineconeResponse = await fetch(`${pythonApiUrl}/cleanup-qudemo/${companyName}/${id}`, {
+        method: 'DELETE'
+      });
+      
+      if (pineconeResponse.ok) {
+        const pineconeResult = await pineconeResponse.json();
+        console.log(`✅ Pinecone cleanup successful:`, pineconeResult);
+      } else {
+        console.log(`⚠️ Pinecone cleanup failed: ${pineconeResponse.status} ${pineconeResponse.statusText}`);
+      }
+    } catch (pineconeError) {
+      console.log(`⚠️ Could not cleanup Pinecone data:`, pineconeError.message);
+    }
 
-    if (deleteError) {
-      console.error('❌ Error deleting qudemo:', deleteError);
+    // Use the complete deletion function to properly delete all related data
+    const deletionSuccess = await deleteQudemoCompletely(id);
+    
+    if (!deletionSuccess) {
+      console.error('❌ Error deleting qudemo completely');
       return res.status(500).json({
         success: false,
-        error: 'Failed to delete qudemo'
+        error: 'Failed to delete qudemo completely'
       });
     }
 

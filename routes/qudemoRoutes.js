@@ -731,16 +731,48 @@ router.post('/sync-existing-data/:qudemoId', authenticateToken, async (req, res)
 // Handle processing completion notification from Python backend
 router.post('/:id/processing-complete', async (req, res) => {
   try {
-    const { qudemo_id, company_name, processing_complete, total_chunks_stored, videos, websites, videos_processed, website_processed, processing_order } = req.body;
+    const { 
+      qudemo_id, 
+      company_name, 
+      processing_complete, 
+      total_chunks_stored, 
+      videos, 
+      websites, 
+      videos_processed, 
+      website_processed, 
+      processing_order,
+      success,
+      processing_errors,
+      has_errors,
+      has_anti_bot_protection
+    } = req.body;
     
     console.log(`🔔 Received processing completion notification for qudemo ${qudemo_id}`);
     console.log(`📊 Processing summary:`, {
+      success,
       total_chunks_stored,
       videos_processed,
       website_processed,
       videos: videos?.length || 0,
-      websites: websites?.length || 0
+      websites: websites?.length || 0,
+      has_errors,
+      has_anti_bot_protection
     });
+    
+    // Check if processing was successful
+    if (!success) {
+      console.log(`❌ Processing failed for qudemo ${qudemo_id} - not updating database`);
+      console.log(`📋 Processing errors:`, processing_errors);
+      
+      // Don't update the database if processing failed
+      return res.json({
+        success: false,
+        message: 'Processing failed - QuDemo not updated',
+        qudemo_id: qudemo_id,
+        errors: processing_errors,
+        has_anti_bot_protection
+      });
+    }
     
     if (!processing_complete) {
       return res.status(400).json({
