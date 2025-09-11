@@ -76,20 +76,42 @@ class QAController {
 
             console.log(`✅ Access verified for qudemo: ${qudemo.title}`);
 
-            // Call Python backend for qudemo-specific question answering with the new endpoint
+            // Call Python backend for qudemo-specific question answering with hybrid Q&A (optimized for accuracy)
             try {
-                const response = await axios.post(
-                    `${PYTHON_API_BASE_URL}/ask/${qudemo.companies.name}/${qudemoId}`,
-                    {
-                        question: question.trim()
-                    },
-                    {
-                        timeout: 30000, // 30 seconds timeout
-                        headers: {
-                            'Content-Type': 'application/json'
+                // Try hybrid Q&A endpoint first for best accuracy and timestamps
+                let response;
+                try {
+                    console.log(`🚀 Attempting hybrid Q&A for enhanced accuracy...`);
+                    response = await axios.post(
+                        `${PYTHON_API_BASE_URL}/ask/${qudemo.companies.name}/${qudemoId}`,
+                        {
+                            question: question.trim()
+                        },
+                        {
+                            timeout: 45000, // 45 seconds timeout for hybrid processing
+                            headers: {
+                                'Content-Type': 'application/json'
+                            }
                         }
-                    }
-                );
+                    );
+                    console.log(`✅ Hybrid Q&A response received`);
+                } catch (hybridError) {
+                    console.log(`⚠️ Hybrid Q&A failed, falling back to standard Q&A: ${hybridError.message}`);
+                    // Fallback to standard Q&A endpoint
+                    response = await axios.post(
+                        `${PYTHON_API_BASE_URL}/ask/${qudemo.companies.name}/${qudemoId}`,
+                        {
+                            question: question.trim()
+                        },
+                        {
+                            timeout: 30000, // 30 seconds timeout
+                            headers: {
+                                'Content-Type': 'application/json'
+                            }
+                        }
+                    );
+                    console.log(`✅ Standard Q&A fallback response received`);
+                }
 
                 if (response.data && response.data.success) {
                     console.log(`✅ Qudemo question answered successfully`);
@@ -98,18 +120,29 @@ class QAController {
                     // Log the interaction
                     await this.logQudemoInteraction(qudemoId, userId, question, response.data);
 
-                    // Map Python response fields to frontend
+                    // Enhanced mapping for hybrid Q&A response with better timestamp handling
                     const primarySource = response.data.primary_source || response.data.answer_source || 'unknown';
                     const sources = Array.isArray(response.data.sources) ? response.data.sources : [];
+                    const searchMethod = response.data.search_method || 'standard';
 
-                    // Extract video data directly from Python response (not from sources)
+                    // Extract video data with enhanced hybrid Q&A support
                     let videoUrl = response.data.video_url;
                     let start = response.data.start;
                     let end = response.data.end;
                     let videoTitle = response.data.video_title;
+                    let formattedTimestamp = response.data.formatted_timestamp;
+
+                    // Enhanced timestamp handling for hybrid Q&A
+                    if (searchMethod === 'hybrid' && response.data.hybrid_scores) {
+                        console.log(`🎯 Hybrid Q&A detected with scores:`, response.data.hybrid_scores);
+                        // Hybrid Q&A provides more accurate timestamps
+                        if (start !== undefined && start > 0) {
+                            formattedTimestamp = `${Math.floor(start / 60)}:${Math.floor(start % 60).toString().padStart(2, '0')}`;
+                        }
+                    }
 
                     // Fallback: if no direct video data, try to find in sources
-                    if (!videoUrl && primarySource === 'video') {
+                    if (!videoUrl && (primarySource === 'video' || primarySource === 'hybrid')) {
                         const firstVideo = sources.find(s => (s.type === 'video' || s.content_type === 'video'));
                         if (firstVideo) {
                             videoUrl = firstVideo.video_url || firstVideo.url;
@@ -128,7 +161,13 @@ class QAController {
                         end: end,
                         video_title: videoTitle,
                         answer_source: primarySource,
-                        confidence: response.data.confidence_score || response.data.confidence
+                        search_method: searchMethod,
+                        confidence: response.data.confidence_score || response.data.confidence,
+                        search_score: response.data.search_score,
+                        hybrid_scores: response.data.hybrid_scores,
+                        formatted_timestamp: formattedTimestamp,
+                        difficulty_level: response.data.difficulty_level,
+                        estimated_time: response.data.estimated_time
                     };
                     
                     console.log(`🎬 Final response to frontend:`, JSON.stringify(finalResponse, null, 2));

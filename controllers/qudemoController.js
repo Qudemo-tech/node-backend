@@ -283,10 +283,10 @@ const getQudemo = async (req, res) => {
   }
 };
 
-// Helper function to completely delete a qudemo and all related data
+// Helper function to soft delete a qudemo and clean up related data
 const deleteQudemoCompletely = async (qudemoId) => {
   try {
-    console.log(`🗑️ Deleting qudemo ${qudemoId} completely...`);
+    console.log(`🗑️ Soft deleting qudemo ${qudemoId} and cleaning up related data...`);
     
     // Delete in order to respect foreign key constraints
     const { error: videosError } = await supabase
@@ -316,17 +316,20 @@ const deleteQudemoCompletely = async (qudemoId) => {
       console.error(`❌ Error deleting analytics for qudemo ${qudemoId}:`, analyticsError);
     }
     
+    // Soft delete: mark as inactive instead of hard delete
     const { error: qudemoError } = await supabase
       .from('qudemos_new')
-      .delete()
+      .update({ 
+        is_active: false
+      })
       .eq('id', qudemoId);
     
     if (qudemoError) {
-      console.error(`❌ Error deleting qudemo ${qudemoId}:`, qudemoError);
+      console.error(`❌ Error soft deleting qudemo ${qudemoId}:`, qudemoError);
       return false;
     }
     
-    console.log(`✅ Qudemo ${qudemoId} completely deleted`);
+    console.log(`✅ Qudemo ${qudemoId} soft deleted (marked as inactive)`);
     return true;
   } catch (error) {
     console.error(`❌ Error in deleteQudemoCompletely for ${qudemoId}:`, error);
@@ -708,7 +711,7 @@ const deleteQudemo = async (req, res) => {
 
     console.log('✅ Company access validated for deletion');
 
-    console.log(`🗑️ Deleting qudemo ${id} and all associated data...`);
+    console.log(`🗑️ Soft deleting qudemo ${id} and cleaning up associated data...`);
 
     // First, get counts of associated data for logging
     const { data: videos, error: videosError } = await supabase
@@ -728,39 +731,45 @@ const deleteQudemo = async (req, res) => {
 
     console.log(`📊 Associated data counts - Videos: ${videos?.length || 0}, Knowledge Sources: ${knowledgeSources?.length || 0}, Analytics: ${analytics?.length || 0}`);
 
-    // Clean up Pinecone data first
+    // Clean up ALL data (Pinecone + GCS) using comprehensive cleanup
     try {
       const companyName = companyAccess.name || 'mycomptest';
-      console.log(`🧹 Cleaning up Pinecone data for company: ${companyName}, qudemo: ${id}`);
+      console.log(`🧹 Cleaning up ALL data (Pinecone + GCS) for company: ${companyName}, qudemo: ${id}`);
       
       const pythonApiUrl = process.env.PYTHON_API_BASE_URL || process.env.PYTHON_API_URL || 'http://localhost:5001';
       const fetch = (await import('node-fetch')).default;
-      const pineconeResponse = await fetch(`${pythonApiUrl}/cleanup-qudemo/${companyName}/${id}`, {
+      const cleanupResponse = await fetch(`${pythonApiUrl}/cleanup-all-qudemo-data/${companyName}/${id}`, {
         method: 'DELETE'
       });
       
-      if (pineconeResponse.ok) {
-        const pineconeResult = await pineconeResponse.json();
-        console.log(`✅ Pinecone cleanup successful:`, pineconeResult);
+      if (cleanupResponse.ok) {
+        const cleanupResult = await cleanupResponse.json();
+        console.log(`✅ Comprehensive cleanup successful:`, cleanupResult);
+        
+        // Log detailed results
+        if (cleanupResult.data) {
+          console.log(`📊 Pinecone cleanup: ${cleanupResult.data.pinecone_cleanup?.success ? '✅' : '❌'} - ${cleanupResult.data.pinecone_cleanup?.message}`);
+          console.log(`📊 GCS cleanup: ${cleanupResult.data.gcs_cleanup?.success ? '✅' : '❌'} - ${cleanupResult.data.gcs_cleanup?.message}`);
+        }
       } else {
-        console.log(`⚠️ Pinecone cleanup failed: ${pineconeResponse.status} ${pineconeResponse.statusText}`);
+        console.log(`⚠️ Comprehensive cleanup failed: ${cleanupResponse.status} ${cleanupResponse.statusText}`);
       }
-    } catch (pineconeError) {
-      console.log(`⚠️ Could not cleanup Pinecone data:`, pineconeError.message);
+    } catch (cleanupError) {
+      console.log(`⚠️ Could not cleanup data:`, cleanupError.message);
     }
 
-    // Use the complete deletion function to properly delete all related data
+    // Use the soft deletion function to properly clean up all related data
     const deletionSuccess = await deleteQudemoCompletely(id);
     
     if (!deletionSuccess) {
-      console.error('❌ Error deleting qudemo completely');
+      console.error('❌ Error soft deleting qudemo');
       return res.status(500).json({
         success: false,
-        error: 'Failed to delete qudemo completely'
+        error: 'Failed to soft delete qudemo'
       });
     }
 
-    console.log(`✅ Qudemo ${id} and all associated data deleted successfully`);
+    console.log(`✅ Qudemo ${id} soft deleted and all associated data cleaned up successfully`);
 
     res.json({
       success: true,

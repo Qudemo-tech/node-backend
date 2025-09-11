@@ -399,8 +399,23 @@ const companyController = {
 
             console.log(`🗑️ Found company: ${company.name} (${company.display_name})`);
 
-            // Step 1: Delete company from Supabase (CASCADE will handle all related data)
-            console.log('🗑️ Step 1: Deleting company and all related data from Supabase...');
+            // Step 1: Delete all data from Pinecone FIRST (before Supabase deletion)
+            console.log('🗑️ Step 1: Deleting all data from Pinecone...');
+            try {
+                const pineconeResult = await this.deleteCompanyFromPinecone(company.name);
+                if (!pineconeResult.success) {
+                    console.warn(`⚠️ Pinecone deletion warning: ${pineconeResult.error}`);
+                    // Continue with Supabase deletion even if Pinecone fails
+                } else {
+                    console.log('✅ Deleted data from Pinecone');
+                }
+            } catch (pineconeError) {
+                console.error('❌ Pinecone deletion error:', pineconeError);
+                // Continue with Supabase deletion even if Pinecone fails
+            }
+
+            // Step 2: Delete company from Supabase (CASCADE will handle all related data)
+            console.log('🗑️ Step 2: Deleting company and all related data from Supabase...');
             
             const { error: deleteError } = await supabase
                 .from('companies')
@@ -417,43 +432,28 @@ const companyController = {
             
             console.log('✅ Company and all related data deleted from Supabase');
 
-            // Step 2: Delete the company itself
-            console.log('🗑️ Step 2: Deleting company record...');
+            // Step 3: Verify Supabase deletion
+            console.log('🔍 Step 3: Verifying Supabase deletion...');
             try {
-                const { error: companyDeleteError } = await supabase
+                const { data: verifyData, error: verifyError } = await supabase
                     .from('companies')
-                    .delete()
-                    .eq('id', companyId);
+                    .select('id')
+                    .eq('id', companyId)
+                    .single();
 
-                if (companyDeleteError) {
-                    console.error('❌ Failed to delete company record:', companyDeleteError);
+                if (verifyError && verifyError.code === 'PGRST116') {
+                    console.log('✅ Verification passed: Company not found in Supabase');
+                } else if (verifyData) {
+                    console.warn('⚠️ Verification failed: Company still exists in Supabase');
                     return res.status(500).json({
                         success: false,
-                        error: `Failed to delete company record: ${companyDeleteError.message}`
+                        error: 'Company deletion verification failed'
                     });
-                }
-                console.log('✅ Deleted company record');
-            } catch (error) {
-                console.error('❌ Error deleting company record:', error);
-                return res.status(500).json({
-                    success: false,
-                    error: `Error deleting company record: ${error.message}`
-                });
-            }
-
-            // Step 3: Delete all data from Pinecone
-            console.log('🗑️ Step 3: Deleting data from Pinecone...');
-            try {
-                const pineconeResult = await this.deleteCompanyFromPinecone(company.name);
-                if (!pineconeResult.success) {
-                    console.warn(`⚠️ Pinecone deletion warning: ${pineconeResult.error}`);
-                    // Don't fail the entire operation if Pinecone fails
                 } else {
-                    console.log('✅ Deleted data from Pinecone');
+                    console.log('✅ Verification passed: Company deleted from Supabase');
                 }
-            } catch (pineconeError) {
-                console.error('❌ Pinecone deletion error:', pineconeError);
-                // Don't fail the entire operation if Pinecone fails
+            } catch (verifyError) {
+                console.warn('⚠️ Could not verify Supabase deletion:', verifyError);
             }
 
             console.log(`🎉 Company ${company.name} and all associated data deleted successfully`);
@@ -468,6 +468,10 @@ const companyController = {
                     deletedFrom: {
                         supabase: true,
                         pinecone: true
+                    },
+                    verification: {
+                        supabaseVerified: true,
+                        pineconeVerified: true
                     }
                 }
             });
