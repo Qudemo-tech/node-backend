@@ -534,8 +534,8 @@ class AsyncJobQueue extends EventEmitter {
                 console.log(`✅ Deleted from knowledge_sources table`);
             }
 
-            // Delete from Pinecone
-            console.log(`🗑️ Deleting from Pinecone for company: ${companyName}`);
+            // Delete from GCS
+            console.log(`🗑️ Deleting from GCS for company: ${companyName}`);
             try {
                 const axios = require('axios');
                 const PYTHON_API_BASE_URL = process.env.PYTHON_API_BASE_URL || 'http://localhost:5001';
@@ -549,12 +549,12 @@ class AsyncJobQueue extends EventEmitter {
                 });
                 
                 if (response.data.success) {
-                    console.log(`✅ Deleted from Pinecone`);
+                    console.log(`✅ Deleted from GCS`);
                 } else {
-                    console.error(`❌ Failed to delete from Pinecone:`, response.data.error);
+                    console.error(`❌ Failed to delete from GCS:`, response.data.error);
                 }
-            } catch (pineconeError) {
-                console.error(`❌ Pinecone deletion error:`, pineconeError.message);
+            } catch (gcsError) {
+                console.error(`❌ GCS deletion error:`, gcsError.message);
             }
 
             console.log(`✅ Cleanup completed for failed video: ${video_id}`);

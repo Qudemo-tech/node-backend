@@ -184,7 +184,7 @@ router.get('/health', videoController.checkHealth);
 
 /**
  * @route   POST /api/video/process
- * @desc    Process a Loom or YouTube video (transcribe, store in Pinecone)
+ * @desc    Process a Loom or YouTube video (transcribe, store in GCS)
  * @access  Public
  */
 router.post('/process', validateRequest(processVideoSchema), videoController.processVideo);
@@ -198,7 +198,7 @@ router.post('/process-batch', validateRequest(processVideosBatchSchema), videoCo
 
 /**
  * @route   POST /api/video/process-and-index
- * @desc    Process Loom or YouTube video and store in Pinecone
+ * @desc    Process Loom or YouTube video and store in GCS
  * @access  Public
  */
 router.post('/process-and-index', validateRequest(processAndIndexSchema), videoController.processAndIndex);
@@ -357,7 +357,7 @@ router.post('/:companyName/process', videoController.processVideo);
 
 /**
  * @route   POST /api/video/:companyName/process-and-index
- * @desc    Process Loom or YouTube video and store in Pinecone for specific company
+ * @desc    Process Loom or YouTube video and store in GCS for specific company
  * @access  Public
  */
 router.post('/:companyName/process-and-index', videoController.processAndIndex);

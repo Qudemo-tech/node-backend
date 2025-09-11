@@ -20,7 +20,7 @@ class QAController {
         try {
             const { qudemoId } = req.params;
             const { question } = req.body;
-            const userId = req.user.userId || req.user.id;
+            const userId = req.user?.userId || req.user?.id || 'test-user'; // Handle test case
 
             console.log(`❓ Qudemo question: ${question} for qudemo: ${qudemoId}`);
 
@@ -59,19 +59,21 @@ class QAController {
                 });
             }
 
-            // Check if user has access to the company
-            const { data: companyAccess, error: accessError } = await supabase
-                .from('companies')
-                .select('id')
-                .eq('id', qudemo.company_id)
-                .eq('user_id', userId)
-                .single();
+            // Check if user has access to the company (skip for test route)
+            if (!req.path.includes('/test/')) {
+                const { data: companyAccess, error: accessError } = await supabase
+                    .from('companies')
+                    .select('id')
+                    .eq('id', qudemo.company_id)
+                    .eq('user_id', userId)
+                    .single();
 
-            if (accessError || !companyAccess) {
-                return res.status(403).json({
-                    success: false,
-                    error: 'Access denied to this qudemo'
-                });
+                if (accessError || !companyAccess) {
+                    return res.status(403).json({
+                        success: false,
+                        error: 'Access denied to this qudemo'
+                    });
+                }
             }
 
             console.log(`✅ Access verified for qudemo: ${qudemo.title}`);
@@ -157,15 +159,16 @@ class QAController {
                         answer: response.data.answer,
                         sources: sources,
                         video_url: videoUrl,
+                        video_title: videoTitle,
+                        timestamp: start,
                         start: start,
                         end: end,
-                        video_title: videoTitle,
+                        formatted_timestamp: formattedTimestamp,
                         answer_source: primarySource,
                         search_method: searchMethod,
                         confidence: response.data.confidence_score || response.data.confidence,
                         search_score: response.data.search_score,
                         hybrid_scores: response.data.hybrid_scores,
-                        formatted_timestamp: formattedTimestamp,
                         difficulty_level: response.data.difficulty_level,
                         estimated_time: response.data.estimated_time
                     };

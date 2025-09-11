@@ -399,19 +399,19 @@ const companyController = {
 
             console.log(`🗑️ Found company: ${company.name} (${company.display_name})`);
 
-            // Step 1: Delete all data from Pinecone FIRST (before Supabase deletion)
-            console.log('🗑️ Step 1: Deleting all data from Pinecone...');
+            // Step 1: Delete all data from GCS FIRST (before Supabase deletion)
+            console.log('🗑️ Step 1: Deleting all data from GCS...');
             try {
-                const pineconeResult = await this.deleteCompanyFromPinecone(company.name);
-                if (!pineconeResult.success) {
-                    console.warn(`⚠️ Pinecone deletion warning: ${pineconeResult.error}`);
-                    // Continue with Supabase deletion even if Pinecone fails
+                const gcsResult = await this.deleteCompanyFromGCS(company.name);
+                if (!gcsResult.success) {
+                    console.warn(`⚠️ GCS deletion warning: ${gcsResult.error}`);
+                    // Continue with Supabase deletion even if GCS fails
                 } else {
-                    console.log('✅ Deleted data from Pinecone');
+                    console.log('✅ Deleted data from GCS');
                 }
-            } catch (pineconeError) {
-                console.error('❌ Pinecone deletion error:', pineconeError);
-                // Continue with Supabase deletion even if Pinecone fails
+            } catch (gcsError) {
+                console.error('❌ GCS deletion error:', gcsError);
+                // Continue with Supabase deletion even if GCS fails
             }
 
             // Step 2: Delete company from Supabase (CASCADE will handle all related data)
@@ -467,11 +467,11 @@ const companyController = {
                     displayName: company.display_name,
                     deletedFrom: {
                         supabase: true,
-                        pinecone: true
+                        gcs: true
                     },
                     verification: {
                         supabaseVerified: true,
-                        pineconeVerified: true
+                        gcsVerified: true
                     }
                 }
             });
@@ -486,13 +486,13 @@ const companyController = {
     },
 
     /**
-     * Delete company data from Pinecone
+     * Delete company data from GCS
      */
-    async deleteCompanyFromPinecone(companyName) {
+    async deleteCompanyFromGCS(companyName) {
         try {
-            console.log(`🗑️ Deleting Pinecone data for company: ${companyName}`);
+            console.log(`🗑️ Deleting GCS data for company: ${companyName}`);
             
-            // Call Python API to delete from Pinecone
+            // Call Python API to delete from GCS
             const axios = require('axios');
             const PYTHON_API_BASE_URL = process.env.PYTHON_API_BASE_URL || 'http://localhost:5001';
             
@@ -504,15 +504,15 @@ const companyController = {
             );
 
             if (response.data.success) {
-                console.log(`✅ Pinecone deletion successful for ${companyName}`);
+                console.log(`✅ GCS deletion successful for ${companyName}`);
                 return { success: true };
             } else {
-                console.error(`❌ Pinecone deletion failed for ${companyName}:`, response.data.error);
+                console.error(`❌ GCS deletion failed for ${companyName}:`, response.data.error);
                 return { success: false, error: response.data.error };
             }
 
         } catch (error) {
-            console.error(`❌ Pinecone deletion error for ${companyName}:`, error.message);
+            console.error(`❌ GCS deletion error for ${companyName}:`, error.message);
             return { 
                 success: false, 
                 error: error.response?.data?.detail || error.message 

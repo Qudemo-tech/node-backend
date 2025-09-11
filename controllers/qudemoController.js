@@ -731,10 +731,10 @@ const deleteQudemo = async (req, res) => {
 
     console.log(`📊 Associated data counts - Videos: ${videos?.length || 0}, Knowledge Sources: ${knowledgeSources?.length || 0}, Analytics: ${analytics?.length || 0}`);
 
-    // Clean up ALL data (Pinecone + GCS) using comprehensive cleanup
+    // Clean up ALL data (GCS) using comprehensive cleanup
     try {
       const companyName = companyAccess.name || 'mycomptest';
-      console.log(`🧹 Cleaning up ALL data (Pinecone + GCS) for company: ${companyName}, qudemo: ${id}`);
+      console.log(`🧹 Cleaning up ALL data (GCS) for company: ${companyName}, qudemo: ${id}`);
       
       const pythonApiUrl = process.env.PYTHON_API_BASE_URL || process.env.PYTHON_API_URL || 'http://localhost:5001';
       const fetch = (await import('node-fetch')).default;
@@ -748,7 +748,7 @@ const deleteQudemo = async (req, res) => {
         
         // Log detailed results
         if (cleanupResult.data) {
-          console.log(`📊 Pinecone cleanup: ${cleanupResult.data.pinecone_cleanup?.success ? '✅' : '❌'} - ${cleanupResult.data.pinecone_cleanup?.message}`);
+          console.log(`📊 GCS cleanup: ${cleanupResult.data.gcs_cleanup?.success ? '✅' : '❌'} - ${cleanupResult.data.gcs_cleanup?.message}`);
           console.log(`📊 GCS cleanup: ${cleanupResult.data.gcs_cleanup?.success ? '✅' : '❌'} - ${cleanupResult.data.gcs_cleanup?.message}`);
         }
       } else {

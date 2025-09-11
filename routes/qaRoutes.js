@@ -10,4 +10,11 @@ const qaController = require('../controllers/qaController');
  */
 router.post('/qudemo/:qudemoId', authenticateToken, qaController.askQudemoQuestion.bind(qaController));
 
+/**
+ * @route   POST /api/qa/test/:qudemoId
+ * @desc    Test Q&A without authentication (for debugging)
+ * @access  Public
+ */
+router.post('/test/:qudemoId', qaController.askQudemoQuestion.bind(qaController));
+
 module.exports = router;

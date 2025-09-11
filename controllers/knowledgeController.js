@@ -147,7 +147,7 @@ class KnowledgeController {
     }
 
     /**
-     * Clean up failed website data from both Supabase and Pinecone
+     * Clean up failed website data from both Supabase and GCS
      */
     async cleanupFailedWebsiteData(knowledgeSourceId, websiteUrl, companyName, qudemoId = null) {
         console.log(`🧹 Cleaning up failed website data for: ${websiteUrl}`);
@@ -184,8 +184,8 @@ class KnowledgeController {
                 }
             }
 
-            // Delete from Pinecone using the new endpoint with qudemo_id
-            console.log(`🗑️ Deleting from Pinecone for company: ${companyName} qudemo: ${qudemoId}`);
+            // Delete from GCS using the new endpoint with qudemo_id
+            console.log(`🗑️ Deleting from GCS for company: ${companyName} qudemo: ${qudemoId}`);
             try {
                 const endpoint = qudemoId 
                     ? `${PYTHON_API_BASE_URL}/delete-website-data/${companyName}/${qudemoId}`
@@ -200,12 +200,12 @@ class KnowledgeController {
                 });
                 
                 if (response.data.success) {
-                    console.log(`✅ Deleted from Pinecone`);
+                    console.log(`✅ Deleted from GCS`);
                 } else {
-                    console.error(`❌ Failed to delete from Pinecone:`, response.data.error);
+                    console.error(`❌ Failed to delete from GCS:`, response.data.error);
                 }
-            } catch (pineconeError) {
-                console.error(`❌ Pinecone deletion error:`, pineconeError.message);
+            } catch (gcsError) {
+                console.error(`❌ GCS deletion error:`, gcsError.message);
             }
 
             console.log(`✅ Cleanup completed for failed website: ${websiteUrl}`);
@@ -329,7 +329,7 @@ class KnowledgeController {
     }
 
     /**
-     * Clean up failed document data from both Supabase and Pinecone
+     * Clean up failed document data from both Supabase and GCS
      */
     async cleanupFailedDocumentData(knowledgeSourceId, fileName, companyName) {
         console.log(`🧹 Cleaning up failed document data for: ${fileName}`);
@@ -366,8 +366,8 @@ class KnowledgeController {
                 }
             }
 
-            // Delete from Pinecone
-            console.log(`🗑️ Deleting from Pinecone for company: ${companyName}`);
+            // Delete from GCS
+            console.log(`🗑️ Deleting from GCS for company: ${companyName}`);
             try {
                 const response = await axios.delete(`${PYTHON_API_BASE_URL}/delete-document-data/${companyName}`, {
                     data: {
@@ -378,12 +378,12 @@ class KnowledgeController {
                 });
                 
                 if (response.data.success) {
-                    console.log(`✅ Deleted from Pinecone`);
+                    console.log(`✅ Deleted from GCS`);
                 } else {
-                    console.error(`❌ Failed to delete from Pinecone:`, response.data.error);
+                    console.error(`❌ Failed to delete from GCS:`, response.data.error);
                 }
-            } catch (pineconeError) {
-                console.error(`❌ Pinecone deletion error:`, pineconeError.message);
+            } catch (gcsError) {
+                console.error(`❌ GCS deletion error:`, gcsError.message);
             }
 
             console.log(`✅ Cleanup completed for failed document: ${fileName}`);
@@ -440,7 +440,7 @@ class KnowledgeController {
                 console.error('❌ Failed to fetch Supabase knowledge sources:', fetchError);
             }
 
-            // Then get from Python backend (Pinecone data) with qudemo isolation
+            // Then get from Python backend (GCS data) with qudemo isolation
             let pythonSources = [];
             try {
                 // Use the new endpoint with qudemo_id if provided
@@ -620,7 +620,7 @@ class KnowledgeController {
             }
             console.log(`🔍 DEBUG: Final companyName before Python API call: ${companyName}`);
 
-            // Call Python API to get content from Pinecone with qudemo isolation
+            // Call Python API to get content from GCS with qudemo isolation
             try {
                 console.log(`🔍 DEBUG: Fetching content from Python backend for source: ${id}, company: ${companyName}, qudemo: ${qudemo_id}`);
                 
@@ -718,9 +718,9 @@ class KnowledgeController {
                 });
             }
 
-            // Delete from Pinecone via Python API first
+            // Delete from GCS via Python API first
             try {
-                console.log(`🗑️ Deleting from Pinecone for company: ${knowledgeSource.company_name}`);
+                console.log(`🗑️ Deleting from GCS for company: ${knowledgeSource.company_name}`);
                 
                 const response = await axios.delete(
                     `${PYTHON_API_BASE_URL}/delete-knowledge-source/${knowledgeSource.company_name}`,
@@ -736,13 +736,13 @@ class KnowledgeController {
                 );
 
                 if (response.data.success) {
-                    console.log('✅ Successfully deleted from Pinecone');
+                    console.log('✅ Successfully deleted from GCS');
                 } else {
-                    console.warn('⚠️ Pinecone deletion failed:', response.data.error);
+                    console.warn('⚠️ GCS deletion failed:', response.data.error);
                 }
-            } catch (pineconeError) {
-                console.error('❌ Pinecone deletion error:', pineconeError);
-                // Continue with database deletion even if Pinecone fails
+            } catch (gcsError) {
+                console.error('❌ GCS deletion error:', gcsError);
+                // Continue with database deletion even if GCS fails
             }
 
             // Delete from database
@@ -789,7 +789,7 @@ class KnowledgeController {
                 });
             }
 
-            // Get Pinecone summary from Python API
+            // Get GCS summary from Python API
             const response = await axios.get(
                 `${PYTHON_API_BASE_URL}/knowledge-summary/${companyName}`,
                 { timeout: PYTHON_API_TIMEOUT }

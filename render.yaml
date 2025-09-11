@@ -23,7 +23,7 @@ services:
         sync: false
       - key: GEMINI_API_KEY
         sync: false
-      - key: PINECONE_API_KEY
+      # Note: PINECONE_API_KEY removed - now using GCS-based storage
         sync: false
     healthCheckPath: /health
     autoDeploy: true
@@ -55,9 +55,9 @@ services:
         sync: false
       - key: GEMINI_API_KEY
         sync: false
-      - key: PINECONE_API_KEY
+      # Note: PINECONE_API_KEY removed - now using GCS-based storage
         sync: false
-      - key: PINECONE_INDEX
+      # Note: PINECONE_INDEX removed - now using GCS-based storage
         sync: false
     healthCheckPath: /health
     autoDeploy: true

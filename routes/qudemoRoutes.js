@@ -621,7 +621,7 @@ router.post('/:id/manual-sync', authenticateToken, async (req, res) => {
   }
 });
 
-// Utility endpoint to sync existing qudemo data from Pinecone to Supabase
+// Utility endpoint to sync existing qudemo data from GCS to Supabase
 router.post('/sync-existing-data/:qudemoId', authenticateToken, async (req, res) => {
   try {
     const { qudemoId } = req.params;
