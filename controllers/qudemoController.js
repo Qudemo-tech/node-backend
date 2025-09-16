@@ -67,6 +67,8 @@ const getQudemos = async (req, res) => {
     console.log('✅ Table exists, fetching qudemos...');
 
     // Get all qudemos for the company (with additional validation)
+    console.log(`🔍 Fetching qudemos for company ${companyId} with is_active=true filter`);
+    
     const { data: qudemos, error: qudemosError } = await supabase
       .from('qudemos_new')
       .select('*')
@@ -83,7 +85,27 @@ const getQudemos = async (req, res) => {
     }
 
     console.log('✅ Found qudemos:', qudemos?.length || 0);
-    console.log('🔍 Qudemos data:', qudemos?.map(q => ({ id: q.id, title: q.title, company_id: q.company_id })));
+    console.log('🔍 Qudemos data:', qudemos?.map(q => ({ 
+      id: q.id, 
+      title: q.title, 
+      company_id: q.company_id, 
+      is_active: q.is_active,
+      created_at: q.created_at,
+      updated_at: q.updated_at
+    })));
+    
+    // Also check if there are any inactive qudemos for debugging
+    const { data: inactiveQudemos, error: inactiveError } = await supabase
+      .from('qudemos_new')
+      .select('id, title, is_active, updated_at')
+      .eq('company_id', companyId)
+      .eq('is_active', false);
+    
+    if (!inactiveError && inactiveQudemos?.length > 0) {
+      console.log('🔍 Found inactive (deleted) qudemos:', inactiveQudemos);
+    } else {
+      console.log('🔍 No inactive qudemos found for this company');
+    }
 
     // Get videos for each qudemo
     const formattedQudemos = await Promise.all((qudemos || []).map(async (qudemo) => {
@@ -317,19 +339,35 @@ const deleteQudemoCompletely = async (qudemoId) => {
     }
     
     // Soft delete: mark as inactive instead of hard delete
-    const { error: qudemoError } = await supabase
+    const { data: updateResult, error: qudemoError } = await supabase
       .from('qudemos_new')
       .update({ 
-        is_active: false
+        is_active: false,
+        updated_at: new Date().toISOString()
       })
-      .eq('id', qudemoId);
+      .eq('id', qudemoId)
+      .select();
     
     if (qudemoError) {
       console.error(`❌ Error soft deleting qudemo ${qudemoId}:`, qudemoError);
       return false;
     }
     
-    console.log(`✅ Qudemo ${qudemoId} soft deleted (marked as inactive)`);
+    console.log(`✅ Qudemo ${qudemoId} soft deleted (marked as inactive)`, updateResult);
+    
+    // Verify the update worked
+    const { data: verifyResult, error: verifyError } = await supabase
+      .from('qudemos_new')
+      .select('id, is_active')
+      .eq('id', qudemoId)
+      .single();
+    
+    if (verifyError) {
+      console.error(`❌ Error verifying soft delete for qudemo ${qudemoId}:`, verifyError);
+    } else {
+      console.log(`🔍 Verification: Qudemo ${qudemoId} is_active status:`, verifyResult?.is_active);
+    }
+    
     return true;
   } catch (error) {
     console.error(`❌ Error in deleteQudemoCompletely for ${qudemoId}:`, error);
@@ -1307,6 +1345,237 @@ const getQudemoDataForPython = async (req, res) => {
   }
 };
 
+// Generate share link for qudemo
+const generateShareLink = async (req, res) => {
+  try {
+    console.log(`🔗 ===== SHARE LINK GENERATION STARTED =====`);
+    console.log(`🔗 Request method: ${req.method}`);
+    console.log(`🔗 Request URL: ${req.url}`);
+    console.log(`🔗 Request headers:`, req.headers);
+    console.log(`🔗 Request body:`, req.body);
+    
+    const { id } = req.params;
+    const userId = req.user?.userId || req.user?.id;
+
+    console.log(`🔗 Generating share link for qudemo: ${id}, user: ${userId}`);
+    console.log(`🔗 User object:`, req.user);
+
+    // Get qudemo and validate access
+    const { data: qudemo, error: qudemoError } = await supabase
+      .from('qudemos_new')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (qudemoError || !qudemo) {
+      console.log(`❌ Qudemo not found - ID: ${id}, Error:`, qudemoError);
+      return res.status(404).json({
+        success: false,
+        error: 'Qudemo not found'
+      });
+    }
+
+    // Validate company access
+    const { data: companyAccess, error: accessError } = await supabase
+      .from('companies')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('id', qudemo.company_id)
+      .single();
+
+    if (accessError || !companyAccess) {
+      console.log('❌ Access denied to qudemo:', accessError);
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied to this qudemo'
+      });
+    }
+
+    // Generate share token (simple UUID for now, could be more sophisticated)
+    const shareToken = uuidv4();
+    
+    console.log(`🔗 Generated share token: ${shareToken}`);
+    console.log(`🔗 Qudemo ID: ${id}`);
+    console.log(`🔗 Company ID: ${qudemo.company_id}`);
+    console.log(`🔗 User ID: ${userId}`);
+    
+    // Store share token in database
+    const shareData = {
+      id: uuidv4(),
+      qudemo_id: id,
+      share_token: shareToken,
+      company_id: qudemo.company_id,
+      created_by: userId,
+      created_at: new Date().toISOString(),
+      expires_at: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString() // 1 year from now
+    };
+    
+    console.log(`🔗 Inserting share data:`, shareData);
+    
+    const { data: shareResult, error: shareError } = await supabase
+      .from('qudemo_shares')
+      .insert(shareData)
+      .select();
+
+    if (shareError) {
+      console.error('❌ Error creating share token:', shareError);
+      console.error('❌ Share error details:', {
+        code: shareError.code,
+        message: shareError.message,
+        details: shareError.details,
+        hint: shareError.hint
+      });
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to generate share link'
+      });
+    }
+    
+    console.log(`✅ Share token created successfully:`, shareResult);
+
+    // Generate share URL
+    const baseUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    const shareUrl = `${baseUrl}/share/${shareToken}`;
+
+    console.log(`✅ Share link generated: ${shareUrl}`);
+
+    res.json({
+      success: true,
+      shareUrl: shareUrl,
+      shareToken: shareToken
+    });
+
+  } catch (error) {
+    console.error('❌ Error generating share link:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to generate share link'
+    });
+  }
+};
+
+// Get shared qudemo (public access)
+const getSharedQudemo = async (req, res) => {
+  try {
+    const { shareToken } = req.params;
+
+    console.log(`🔗 Accessing shared qudemo with token: ${shareToken}`);
+    console.log(`🔗 Full URL:`, req.url);
+    console.log(`🔗 Request method:`, req.method);
+
+    // Get share record
+    console.log(`🔍 Querying qudemo_shares table for token: ${shareToken}`);
+    
+    const { data: share, error: shareError } = await supabase
+      .from('qudemo_shares')
+      .select('*')
+      .eq('share_token', shareToken)
+      .single();
+
+    console.log(`🔍 Share query result:`, { share, shareError });
+
+    if (shareError || !share) {
+      console.log(`❌ Share token not found: ${shareToken}`);
+      console.log(`❌ Share error details:`, shareError);
+      return res.status(404).json({
+        success: false,
+        error: 'Share link not found or expired'
+      });
+    }
+
+    // Get qudemo details separately
+    const { data: qudemo, error: qudemoError } = await supabase
+      .from('qudemos_new')
+      .select('*')
+      .eq('id', share.qudemo_id)
+      .single();
+
+    console.log(`🔍 Qudemo query result:`, { qudemo, qudemoError });
+
+    // Get company details separately
+    const { data: company, error: companyError } = await supabase
+      .from('companies')
+      .select('name')
+      .eq('id', share.company_id)
+      .single();
+
+    console.log(`🔍 Company query result:`, { company, companyError });
+
+    // Check if share is expired
+    if (new Date(share.expires_at) < new Date()) {
+      console.log(`❌ Share token expired: ${shareToken}`);
+      return res.status(410).json({
+        success: false,
+        error: 'Share link has expired'
+      });
+    }
+
+    if (!qudemo || !qudemo.is_active) {
+      console.log(`❌ Qudemo not found or inactive: ${qudemo?.id}`);
+      return res.status(404).json({
+        success: false,
+        error: 'Qudemo not found or no longer available'
+      });
+    }
+
+    // Get videos for this qudemo
+    const { data: videos, error: videosError } = await supabase
+      .from('qudemo_videos')
+      .select('*')
+      .eq('qudemo_id', qudemo.id)
+      .order('order_index', { ascending: true });
+
+    if (videosError) {
+      console.error('❌ Error fetching videos:', videosError);
+    }
+
+    // Get knowledge sources for this qudemo
+    const { data: knowledgeSources, error: knowledgeError } = await supabase
+      .from('qudemo_knowledge_sources')
+      .select('*')
+      .eq('qudemo_id', qudemo.id)
+      .eq('status', 'processed')
+      .order('created_at', { ascending: false });
+
+    if (knowledgeError) {
+      console.error('❌ Error fetching knowledge sources:', knowledgeError);
+    }
+
+    // Update view count
+    await supabase
+      .from('qudemo_analytics')
+      .upsert({
+        qudemo_id: qudemo.id,
+        views: 1
+      }, {
+        onConflict: 'qudemo_id',
+        ignoreDuplicates: false
+      });
+
+    console.log(`✅ Shared qudemo accessed: ${qudemo.title}`);
+
+    res.json({
+      success: true,
+      data: {
+        ...qudemo,
+        videos: videos || [],
+        knowledge_sources: knowledgeSources || [],
+        company: {
+          name: company?.name || 'Unknown Company',
+          logo_url: company?.logo_url
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error accessing shared qudemo:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to access shared qudemo'
+    });
+  }
+};
+
 module.exports = {
   getQudemos,
   getQudemo,
@@ -1319,5 +1588,7 @@ module.exports = {
   addKnowledgeSource,
   removeKnowledgeSource,
   chat,
-  getQudemoDataForPython
+  getQudemoDataForPython,
+  generateShareLink,
+  getSharedQudemo
 };

@@ -3,6 +3,7 @@ const router = express.Router();
 const authController = require('../controllers/authController');
 const { validateRequest } = require('../middleware/validation');
 const { authenticateToken } = require('../middleware/auth');
+const normalizeName = require('../middleware/normalizeName');
 const { 
     registerSchema, 
     loginSchema, 
@@ -19,7 +20,7 @@ const {
  * @desc    Register a new user
  * @access  Public
  */
-router.post('/register', validateRequest(registerSchema), authController.register);
+router.post('/register', authenticateToken, normalizeName, validateRequest(registerSchema), authController.register);
 
 /**
  * @route   POST /api/auth/login

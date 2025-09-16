@@ -11,30 +11,58 @@ const registerSchema = Joi.object({
         }),
     password: Joi.string()
         .min(8)
-        .pattern(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/)
-        .required()
+        .optional()
         .messages({
-            'string.min': 'Password must be at least 8 characters long',
-            'string.pattern.base': 'Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character',
-            'any.required': 'Password is required'
+            'string.min': 'Password must be at least 8 characters long'
+        }),
+    isGoogleUser: Joi.boolean()
+        .default(false)
+        .messages({
+            'boolean.base': 'isGoogleUser must be a boolean'
+        }),
+    authProvider: Joi.string()
+        .valid('google', 'password', 'github', 'facebook')
+        .optional()
+        .messages({
+            'any.only': 'Auth provider must be one of: google, password, github, facebook'
         }),
     firstName: Joi.string()
-        .min(2)
-        .max(50)
+        .trim()
+        .min(1)
+        .max(100)
         .required()
         .messages({
-            'string.min': 'First name must be at least 2 characters long',
-            'string.max': 'First name must be less than 50 characters',
+            'string.min': 'First name must be at least 1 character long',
+            'string.max': 'First name must be less than 100 characters',
             'any.required': 'First name is required'
         }),
-    lastName: Joi.string()
-        .min(2)
-        .max(50)
-        .required()
+    // Allow Google to have 1-char or null lastName; others keep stricter rule
+    lastName: Joi.alternatives().conditional('isGoogleUser', {
+        is: true,
+        then: Joi.string().trim().min(1).max(100).allow(null),
+        otherwise: Joi.string().trim().min(2).max(100).required(),
+    }).messages({
+        'string.min': 'Last name must be at least 2 characters long for non-Google users',
+        'string.max': 'Last name must be less than 100 characters',
+        'any.required': 'Last name is required for non-Google users'
+    }),
+    lastNameInitial: Joi.string()
+        .trim()
+        .max(10)
+        .allow(null)
+        .optional()
         .messages({
-            'string.min': 'Last name must be at least 2 characters long',
-            'string.max': 'Last name must be less than 50 characters',
-            'any.required': 'Last name is required'
+            'string.max': 'Last name initial must be less than 10 characters'
+        }),
+    displayName: Joi.string()
+        .trim()
+        .min(1)
+        .max(200)
+        .allow(null)
+        .optional()
+        .messages({
+            'string.min': 'Display name must be at least 1 character long',
+            'string.max': 'Display name must be less than 200 characters'
         }),
     companyName: Joi.string()
         .min(2)

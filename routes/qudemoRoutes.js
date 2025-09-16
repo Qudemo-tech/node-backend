@@ -1,6 +1,13 @@
 const express = require('express');
 const router = express.Router();
 const { authenticateToken } = require('../middleware/auth');
+const { createClient } = require('@supabase/supabase-js');
+
+// Initialize Supabase client
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY
+);
 const {
   getQudemos,
   getQudemo,
@@ -12,7 +19,9 @@ const {
   addKnowledgeSource,
   removeKnowledgeSource,
   chat,
-  getQudemoDataForPython
+  getQudemoDataForPython,
+  generateShareLink,
+  getSharedQudemo
 } = require('../controllers/qudemoController');
 
 // Test endpoint without authentication (for debugging)
@@ -22,6 +31,55 @@ router.get('/test', (req, res) => {
     message: 'Qudemo routes are working',
     timestamp: new Date().toISOString()
   });
+});
+
+// Debug endpoint to check qudemo status
+router.get('/debug-status/:companyId', async (req, res) => {
+  try {
+    const { companyId } = req.params;
+    
+    const { createClient } = require('@supabase/supabase-js');
+    const supabase = createClient(
+      process.env.SUPABASE_URL,
+      process.env.SUPABASE_SERVICE_ROLE_KEY
+    );
+    
+    // Get all qudemos for this company (both active and inactive)
+    const { data: allQudemos, error: allError } = await supabase
+      .from('qudemos_new')
+      .select('id, title, is_active, created_at, updated_at')
+      .eq('company_id', companyId)
+      .order('updated_at', { ascending: false });
+    
+    if (allError) {
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to fetch qudemos',
+        details: allError.message
+      });
+    }
+    
+    const activeQudemos = allQudemos?.filter(q => q.is_active === true) || [];
+    const inactiveQudemos = allQudemos?.filter(q => q.is_active === false) || [];
+    
+    res.json({
+      success: true,
+      company_id: companyId,
+      total_qudemos: allQudemos?.length || 0,
+      active_qudemos: activeQudemos.length,
+      inactive_qudemos: inactiveQudemos.length,
+      active_list: activeQudemos,
+      inactive_list: inactiveQudemos
+    });
+    
+  } catch (error) {
+    console.error('❌ Error in debug endpoint:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Debug endpoint failed',
+      details: error.message
+    });
+  }
 });
 
 // Test endpoint to get qudemo data without authentication (for debugging)
@@ -130,7 +188,14 @@ router.post('/', authenticateToken, createQudemo);
 router.put('/:id', authenticateToken, updateQudemo);
 
 // Delete qudemo
-router.delete('/:id', authenticateToken, deleteQudemo);
+router.delete('/:id', (req, res, next) => {
+  console.log(`🗑️ ===== DELETE ROUTE HIT =====`);
+  console.log(`🗑️ Method: ${req.method}`);
+  console.log(`🗑️ URL: ${req.url}`);
+  console.log(`🗑️ Params:`, req.params);
+  console.log(`🗑️ Body:`, req.body);
+  next();
+}, authenticateToken, deleteQudemo);
 
 // Add video to qudemo
 router.post('/:qudemoId/videos', authenticateToken, addVideo);
@@ -146,6 +211,175 @@ router.delete('/:qudemoId/knowledge/:sourceId', authenticateToken, removeKnowled
 
 // Chat with qudemo AI
 router.post('/chat', authenticateToken, chat);
+
+// Generate share link for qudemo
+router.post('/:id/share', (req, res, next) => {
+  console.log(`🔗 ===== SHARE ROUTE HIT =====`);
+  console.log(`🔗 Method: ${req.method}`);
+  console.log(`🔗 URL: ${req.url}`);
+  console.log(`🔗 Params:`, req.params);
+  console.log(`🔗 Body:`, req.body);
+  next();
+}, authenticateToken, generateShareLink);
+
+// Get shared qudemo (public access - no authentication required)
+router.get('/share/:shareToken', getSharedQudemo);
+
+// Chat with shared qudemo (public access - no authentication required)
+router.post('/share/:shareToken/chat', async (req, res) => {
+  try {
+    const { shareToken } = req.params;
+    const { question } = req.body;
+
+    console.log(`💬 Public chat request for share token: ${shareToken}`);
+    console.log(`💬 Question: ${question}`);
+
+    // First verify the share token exists and is valid
+    const { data: share, error: shareError } = await supabase
+      .from('qudemo_shares')
+      .select('*')
+      .eq('share_token', shareToken)
+      .single();
+
+    if (shareError || !share) {
+      console.log(`❌ Invalid share token for chat: ${shareToken}`);
+      return res.status(404).json({
+        success: false,
+        error: 'Share link not found or expired'
+      });
+    }
+
+    // Check if share is expired
+    if (new Date(share.expires_at) < new Date()) {
+      console.log(`❌ Share token expired for chat: ${shareToken}`);
+      return res.status(410).json({
+        success: false,
+        error: 'Share link has expired'
+      });
+    }
+
+    // Get qudemo details
+    const { data: qudemo, error: qudemoError } = await supabase
+      .from('qudemos_new')
+      .select('*')
+      .eq('id', share.qudemo_id)
+      .single();
+
+    if (qudemoError || !qudemo || !qudemo.is_active) {
+      console.log(`❌ Qudemo not found or inactive for chat: ${share.qudemo_id}`);
+      return res.status(404).json({
+        success: false,
+        error: 'Qudemo not found or no longer available'
+      });
+    }
+
+    // Get company details
+    const { data: company, error: companyError } = await supabase
+      .from('companies')
+      .select('name')
+      .eq('id', share.company_id)
+      .single();
+
+    if (companyError || !company) {
+      console.log(`❌ Company not found for chat: ${share.company_id}`);
+      return res.status(404).json({
+        success: false,
+        error: 'Company not found'
+      });
+    }
+
+    // Call the Python backend for real AI responses (same as private chat)
+    console.log(`💬 Processing public chat for qudemo: ${qudemo.id}`);
+    console.log(`💬 Question: ${question}`);
+    console.log(`💬 Company details:`, {
+      id: company.id,
+      name: company.name,
+      display_name: company.display_name
+    });
+    console.log(`💬 QuDemo details:`, {
+      id: qudemo.id,
+      title: qudemo.title,
+      company_id: qudemo.company_id,
+      is_active: qudemo.is_active
+    });
+    
+    try {
+      // Get company name for Python backend
+      const companyName = company.name;
+      
+      // Call Python backend for AI response
+      const pythonApiUrl = process.env.PYTHON_API_BASE_URL || process.env.PYTHON_API_URL || 'http://localhost:5001';
+      const fetch = (await import('node-fetch')).default;
+      
+      const requestBody = {
+        question: question.trim()
+      };
+      
+      console.log(`💬 Calling Python backend: ${pythonApiUrl}/ask/${encodeURIComponent(companyName)}/${qudemo.id}`);
+      console.log(`💬 Request body:`, JSON.stringify(requestBody, null, 2));
+      
+      const pythonResponse = await fetch(`${pythonApiUrl}/ask/${encodeURIComponent(companyName)}/${qudemo.id}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(requestBody),
+        timeout: 45000
+      });
+      
+      if (!pythonResponse.ok) {
+        throw new Error(`Python backend error: ${pythonResponse.status} ${pythonResponse.statusText}`);
+      }
+      
+      const pythonResult = await pythonResponse.json();
+      console.log(`✅ Python backend response:`, pythonResult);
+      
+      if (pythonResult && pythonResult.success) {
+        // Return the response in the exact same format as the private Q&A
+        const finalResponse = {
+          success: true,
+          answer: pythonResult.answer,
+          sources: pythonResult.sources || [],
+          video_url: pythonResult.video_url,
+          video_title: pythonResult.video_title,
+          timestamp: pythonResult.start,
+          start: pythonResult.start,
+          end: pythonResult.end,
+          formatted_timestamp: pythonResult.formatted_timestamp,
+          answer_source: pythonResult.answer_source || pythonResult.primary_source,
+          search_method: pythonResult.search_method,
+          confidence: pythonResult.confidence_score || pythonResult.confidence,
+          search_score: pythonResult.search_score,
+          hybrid_scores: pythonResult.hybrid_scores,
+          difficulty_level: pythonResult.difficulty_level,
+          estimated_time: pythonResult.estimated_time
+        };
+        
+        console.log(`🎬 Final public chat response:`, JSON.stringify(finalResponse, null, 2));
+        return res.json(finalResponse);
+      } else {
+        throw new Error(pythonResult.error || 'Failed to get answer');
+      }
+      
+    } catch (pythonError) {
+      console.error(`❌ Python backend error:`, pythonError);
+      
+      // Fallback response if Python backend fails
+      res.json({
+        success: true,
+        answer: `I apologize, but I'm having trouble accessing the AI backend right now. Your question "${question}" is about the QuDemo "${qudemo.title}" from ${company.name}. Please try again in a moment.`,
+        error: 'AI backend temporarily unavailable'
+      });
+    }
+
+  } catch (error) {
+    console.error('❌ Error in public chat:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to process chat request'
+    });
+  }
+});
 
 // Process qudemo content automatically (videos and website)
 router.post('/process-content/:companyName/:qudemoId', authenticateToken, async (req, res) => {

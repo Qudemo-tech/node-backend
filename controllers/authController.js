@@ -15,7 +15,29 @@ const authController = {
      */
     async register(req, res) {
         try {
-            let { email, password, firstName, lastName, companyName, role = 'user' } = req.body;
+            let { 
+                email, 
+                password, 
+                firstName, 
+                lastName, 
+                lastNameInitial, 
+                displayName, 
+                authProvider, 
+                companyName, 
+                role = 'user', 
+                isGoogleUser = false 
+            } = req.body;
+
+            console.log('🔍 Register request body:', { 
+                email, 
+                firstName, 
+                lastName, 
+                lastNameInitial, 
+                displayName, 
+                authProvider, 
+                isGoogleUser, 
+                hasPassword: !!password 
+            });
 
             // Normalize email
             const normalizedEmail = (email || '').trim().toLowerCase();
@@ -23,52 +45,198 @@ const authController = {
                 return res.status(400).json({ success: false, error: 'Email is required' });
             }
 
-            // Check if user already exists (by normalized email)
-            const { data: existingUser, error: checkError } = await supabase
+            // Determine if user needs profile completion
+            const needsProfileCompletion = !lastName || lastName.length < 2;
+
+            // For Google OAuth users, check by auth_user_id instead of email
+            if (isGoogleUser) {
+                console.log('🔍 Google user - skipping email check, will check by auth_user_id later');
+            } else {
+                // Check if user already exists (by normalized email) for non-Google users
+                const { data: existingUser, error: checkError } = await supabase
+                    .from('users')
+                    .select('id')
+                    .eq('email', normalizedEmail)
+                    .single();
+
+                console.log('🔍 Existing user check result:', { existingUser, checkError });
+
+                if (checkError && checkError.code !== 'PGRST116') {
+                    console.log('❌ Error checking user existence:', checkError);
+                    return res.status(500).json({
+                        success: false,
+                        error: 'Error checking user existence'
+                    });
+                }
+
+                if (existingUser) {
+                    console.log('❌ User already exists with email:', normalizedEmail);
+                    return res.status(400).json({
+                        success: false,
+                        error: 'User with this email already exists'
+                    });
+                }
+            }
+
+            console.log('✅ No existing user found, proceeding with user creation');
+
+            // Handle password for non-Google users
+            let hashedPassword = null;
+            if (!isGoogleUser) {
+                console.log('🔍 Non-Google user, checking password');
+                if (!password) {
+                    console.log('❌ Password required for non-Google users');
+                    return res.status(400).json({ success: false, error: 'Password is required for non-Google users' });
+                }
+                // Validate password strength for non-Google users
+                const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/;
+                if (!passwordRegex.test(password)) {
+                    return res.status(400).json({ 
+                        success: false, 
+                        error: 'Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character' 
+                    });
+                }
+                const saltRounds = 12;
+                hashedPassword = await bcrypt.hash(password, saltRounds);
+            }
+
+            // Get the Supabase user ID from the token (set by auth middleware)
+            console.log('🔍 Full req.user object:', req.user);
+            const authUserId = req.user?.userId;
+            console.log('🔍 Auth user ID from token:', authUserId);
+            if (!authUserId) {
+                console.log('❌ No auth user ID found');
+                return res.status(401).json({ 
+                    success: false, 
+                    error: 'Authentication user ID missing' 
+                });
+            }
+
+            // Check if user already exists (duplicate protection)
+            const { data: duplicateUser, error: duplicateCheckError } = await supabase
                 .from('users')
-                .select('id')
-                .eq('email', normalizedEmail)
+                .select('id, email, auth_user_id')
+                .eq('auth_user_id', authUserId)
                 .single();
 
-            if (checkError && checkError.code !== 'PGRST116') {
-                return res.status(500).json({
-                    success: false,
-                    error: 'Error checking user existence'
+            console.log('🔍 Duplicate user check result:', { duplicateUser, duplicateCheckError });
+
+            if (duplicateUser && !duplicateCheckError) {
+                console.log('✅ User already exists, returning existing user:', duplicateUser.id);
+                return res.status(200).json({
+                    success: true,
+                    message: 'User already exists',
+                    user: {
+                        id: duplicateUser.id,
+                        email: duplicateUser.email,
+                        auth_user_id: duplicateUser.auth_user_id
+                    }
                 });
             }
 
-            if (existingUser) {
-                return res.status(400).json({
-                    success: false,
-                    error: 'User with this email already exists'
-                });
-            }
-
-            // Hash password
-            const saltRounds = 12;
-            const hashedPassword = await bcrypt.hash(password, saltRounds);
+            console.log('✅ No duplicate user found, proceeding with user creation');
 
             // Create user with normalized email
+            const userData = {
+                auth_user_id: authUserId, // Link to Supabase user
+                email: normalizedEmail,
+                first_name: firstName,
+                last_name: lastName,
+                last_name_initial: lastNameInitial,
+                display_name: displayName || firstName,
+                auth_provider: authProvider || (isGoogleUser ? 'google' : 'password'),
+                needs_profile_completion: needsProfileCompletion,
+                role,
+                is_active: true,
+                created_at: new Date().toISOString()
+            };
+
+            // Only add password_hash for non-Google users
+            if (hashedPassword) {
+                userData.password_hash = hashedPassword;
+            } else {
+                userData.password_hash = null; // Explicitly set to null for OAuth users
+            }
+
+            console.log('🔍 Inserting user data:', userData);
+            console.log('🔍 Auth user ID type:', typeof authUserId, 'Value:', authUserId);
+
             const { data: user, error: insertError } = await supabase
                 .from('users')
-                .insert({
-                    email: normalizedEmail,
-                    password_hash: hashedPassword,
-                    first_name: firstName,
-                    last_name: lastName,
-                    role,
-                    is_active: true,
-                    created_at: new Date().toISOString()
-                })
+                .insert(userData)
                 .select('id, email, first_name, last_name, role')
                 .single();
 
             if (insertError) {
+                console.error('❌ User creation error:', insertError);
+                console.error('❌ Error code:', insertError.code);
+                console.error('❌ Error message:', insertError.message);
+                console.error('❌ Error details:', insertError.details);
+                
+                // Handle unique constraint violations (user already exists)
+                if (insertError.code === '23505') {
+                    console.log('🔄 Email already exists, updating existing user with new auth_user_id');
+                    
+                    // For Google OAuth users, update the existing user with the new auth_user_id
+                    if (isGoogleUser) {
+                        const { data: updatedUser, error: updateError } = await supabase
+                            .from('users')
+                            .update({
+                                auth_user_id: authUserId,
+                                auth_provider: 'google',
+                                first_name: firstName,
+                                last_name: lastName,
+                                last_name_initial: lastNameInitial,
+                                display_name: displayName || firstName,
+                                needs_profile_completion: needsProfileCompletion,
+                                updated_at: new Date().toISOString()
+                            })
+                            .eq('email', normalizedEmail)
+                            .select('id, email, first_name, last_name, role')
+                            .single();
+
+                        if (updateError) {
+                            console.error('❌ Failed to update existing user:', updateError);
+                            return res.status(500).json({
+                                success: false,
+                                error: 'Failed to update existing user',
+                                details: updateError.message
+                            });
+                        }
+
+                        console.log('✅ Updated existing user with new auth_user_id:', updatedUser.id);
+                        
+                        return res.status(200).json({
+                            success: true,
+                            message: 'Google user linked to existing account',
+                            data: {
+                                user: {
+                                    id: updatedUser.id,
+                                    email: updatedUser.email,
+                                    firstName: updatedUser.first_name,
+                                    lastName: updatedUser.last_name,
+                                    role: updatedUser.role
+                                }
+                            }
+                        });
+                    } else {
+                        return res.status(409).json({
+                            success: false,
+                            error: 'User already exists',
+                            details: 'A user with this email already exists'
+                        });
+                    }
+                }
+                
                 return res.status(500).json({
                     success: false,
-                    error: 'Failed to create user'
+                    error: 'Failed to create user',
+                    details: insertError.message
                 });
             }
+
+            console.log('✅ User created successfully:', user);
+            console.log('✅ User ID:', user.id);
 
             // If company name is provided, create company and link user
             if (companyName) {
@@ -127,37 +295,54 @@ const authController = {
                 }
             }
 
-            // Generate tokens
-            const accessToken = generateToken(user.id, user.role);
-            const refreshToken = jwt.sign(
-                { userId: user.id },
-                process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET,
-                { expiresIn: '30d' }
-            );
-
-            // Store refresh token
-            await supabase
-                .from('users')
-                .update({ refresh_token: refreshToken })
-                .eq('id', user.id);
-
-            res.status(201).json({
-                success: true,
-                message: 'User registered successfully',
-                data: {
-                    user: {
-                        id: user.id,
-                        email: user.email,
-                        firstName: user.first_name,
-                        lastName: user.last_name,
-                        role: user.role
-                    },
-                    tokens: {
-                        accessToken,
-                        refreshToken
+            // For Google OAuth users, don't generate our own tokens
+            if (isGoogleUser) {
+                res.status(201).json({
+                    success: true,
+                    message: 'Google user registered successfully',
+                    data: {
+                        user: {
+                            id: user.id,
+                            email: user.email,
+                            firstName: user.first_name,
+                            lastName: user.last_name,
+                            role: user.role
+                        }
                     }
-                }
-            });
+                });
+            } else {
+                // Generate tokens for regular users
+                const accessToken = generateToken(user.id, user.role);
+                const refreshToken = jwt.sign(
+                    { userId: user.id },
+                    process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET,
+                    { expiresIn: '30d' }
+                );
+
+                // Store refresh token
+                await supabase
+                    .from('users')
+                    .update({ refresh_token: refreshToken })
+                    .eq('id', user.id);
+
+                res.status(201).json({
+                    success: true,
+                    message: 'User registered successfully',
+                    data: {
+                        user: {
+                            id: user.id,
+                            email: user.email,
+                            firstName: user.first_name,
+                            lastName: user.last_name,
+                            role: user.role
+                        },
+                        tokens: {
+                            accessToken,
+                            refreshToken
+                        }
+                    }
+                });
+            }
 
         } catch (error) {
             console.error('Registration error:', error);
@@ -325,19 +510,42 @@ const authController = {
      */
     async getProfile(req, res) {
         try {
+            console.log('🔍 getProfile: Auth user ID from token:', req.user.userId);
+            
             const { data: user, error } = await supabase
                 .from('users')
-                .select('id, email, first_name, last_name, role, created_at')
-                .eq('id', req.user.userId)
+                .select('id, email, first_name, last_name, last_name_initial, display_name, auth_provider, needs_profile_completion, role, created_at')
+                .eq('auth_user_id', req.user.userId)
                 .single();
 
+            console.log('🔍 getProfile: Database query result:', { user, error });
+
             if (error) {
+                console.error('❌ getProfile: Database error:', error);
+                // Handle "user not found" case specifically
+                if (error.code === 'PGRST116') {
+                    console.log('❌ getProfile: User not found in database');
+                    return res.status(404).json({
+                        success: false,
+                        error: 'User not found'
+                    });
+                }
                 return res.status(500).json({
                     success: false,
-                    error: 'Failed to fetch profile'
+                    error: 'Failed to fetch profile',
+                    details: error.message
                 });
             }
 
+            if (!user) {
+                console.log('❌ getProfile: User not found in database');
+                return res.status(404).json({
+                    success: false,
+                    error: 'User not found'
+                });
+            }
+
+            console.log('✅ getProfile: User found:', user.id);
             res.json({
                 success: true,
                 data: user

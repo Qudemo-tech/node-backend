@@ -30,7 +30,7 @@ function getKey(header, callback) {
 /**
  * Verify JWT token middleware
  */
-const authenticateToken = (req, res, next) => {
+const authenticateToken = async (req, res, next) => {
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
 
@@ -39,15 +39,41 @@ const authenticateToken = (req, res, next) => {
         return res.status(401).json({ success: false, error: 'No token provided' });
     }
 
-    // Try to verify with your own secret first (for email/password users)
-    jwt.verify(token, process.env.JWT_SECRET || 'default_secret', (err, user) => {
-        if (err) {
-            console.error('❌ JWT verification failed:', err.message);
-            return res.status(403).json({ success: false, error: 'Invalid token' });
+    try {
+        console.log('🔍 Auth middleware: Received token length:', token ? token.length : 0);
+        console.log('🔍 Auth middleware: Token starts with:', token ? token.substring(0, 20) + '...' : 'No token');
+        
+        // First try to verify with Supabase (for OAuth users)
+        const { data: { user: supabaseUser }, error: supabaseError } = await supabase.auth.getUser(token);
+        
+        if (!supabaseError && supabaseUser) {
+            console.log('✅ Supabase token verified for user:', supabaseUser.id);
+            req.user = {
+                userId: supabaseUser.id,
+                email: supabaseUser.email,
+                role: 'user' // Default role for OAuth users
+            };
+            console.log('🔍 Auth middleware: Set req.user:', req.user);
+            return next();
+        } else {
+            console.log('❌ Supabase verification failed:', supabaseError);
         }
-        req.user = user;
-        return next();
-    });
+
+        // If Supabase verification fails, try local JWT (for email/password users)
+        jwt.verify(token, process.env.JWT_SECRET || 'default_secret', (err, user) => {
+            if (err) {
+                console.error('❌ Both Supabase and local JWT verification failed');
+                return res.status(403).json({ success: false, error: 'Invalid token' });
+            }
+            console.log('✅ Local JWT verified for user:', user.userId);
+            req.user = user;
+            return next();
+        });
+
+    } catch (error) {
+        console.error('❌ Token verification error:', error.message);
+        return res.status(403).json({ success: false, error: 'Invalid token' });
+    }
 };
 
 /**
