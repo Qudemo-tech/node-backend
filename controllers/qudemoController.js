@@ -1611,8 +1611,15 @@ const generateShareLink = async (req, res) => {
     
     console.log(`✅ Share token created successfully:`, shareResult);
 
-    // Generate share URL
-    const baseUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    // Generate share URL - handle both development and production
+    let baseUrl;
+    if (process.env.NODE_ENV === 'production') {
+      // In production, use the configured FRONTEND_URL or default to production domain
+      baseUrl = process.env.FRONTEND_URL || 'https://qu-demo.vercel.app';
+    } else {
+      // In development, use localhost
+      baseUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    }
     const shareUrl = `${baseUrl}/share/${shareToken}`;
 
     console.log(`✅ Share link generated: ${shareUrl}`);
