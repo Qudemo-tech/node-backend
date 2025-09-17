@@ -92,9 +92,15 @@ const loginSchema = Joi.object({
             'any.required': 'Email is required'
         }),
     password: Joi.string()
-        .required()
+        .allow(null)
+        .optional()
         .messages({
-            'any.required': 'Password is required'
+            'string.base': 'Password must be a string'
+        }),
+    isGoogleUser: Joi.boolean()
+        .default(false)
+        .messages({
+            'boolean.base': 'isGoogleUser must be a boolean'
         })
 });
 

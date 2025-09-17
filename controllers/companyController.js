@@ -13,8 +13,28 @@ const companyController = {
     async createCompany(req, res) {
     
         try {
-            const userId = req.user.userId || req.user.id;
+            const authUserId = req.user.userId || req.user.id;
             const { name, description, website, logo } = req.body;
+
+            // Get the database user ID from the users table using auth_user_id
+            console.log('🔍 Getting database user ID for auth_user_id:', authUserId);
+            const { data: userData, error: userError } = await supabase
+                .from('users')
+                .select('id')
+                .eq('auth_user_id', authUserId)
+                .single();
+            
+            if (userError) {
+                console.error('❌ Error finding user by auth_user_id:', userError);
+                return res.status(500).json({
+                    success: false,
+                    error: 'User not found in database',
+                    details: userError.message
+                });
+            }
+            
+            const userId = userData.id;
+            console.log('✅ Using database user ID for company creation:', userId);
 
             // Check if companies table exists
             console.log('🔍 Checking if companies table exists...');
@@ -598,6 +618,15 @@ const companyController = {
                 user: req.user
             });
 
+            // Debug: Check if userId is properly extracted
+            if (!userId) {
+                console.error('❌ No userId found in req.user:', req.user);
+                return res.status(400).json({
+                    success: false,
+                    error: 'User ID not found in authentication token'
+                });
+            }
+
             if (role === 'admin') {
                 console.log('👑 Admin user - fetching all companies');
                 const { data: companies, error } = await supabase
@@ -610,22 +639,283 @@ const companyController = {
                 return res.json({ success: true, data: companies });
             } else {
                 console.log('👤 Regular user - fetching user company');
-                const { data: company, error } = await supabase
+                console.log('🔍 Searching for company with user_id:', userId);
+                
+                // First try to find company with the current user ID (Supabase Auth ID)
+                let { data: companies, error } = await supabase
                     .from('companies')
                     .select('*')
                     .eq('user_id', userId)
-                    .limit(1);
+                    .order('created_at', { ascending: false });
 
-                if (error) throw error;
-                console.log(`✅ User: Found ${company?.length || 0} companies for user ${userId}`);
-                console.log('📋 Company data:', company);
-                return res.json({ success: true, data: company || [] });
+                if (error) {
+                    console.error('❌ Supabase error in getCompanies:', error);
+                    console.error('❌ Error code:', error.code);
+                    console.error('❌ Error message:', error.message);
+                    throw error;
+                }
+                
+                // If no companies found, try to find by auth_user_id in users table
+                if (!companies || companies.length === 0) {
+                    console.log('🔍 No companies found with user_id, checking by auth_user_id');
+                    
+                    // Get the database user ID from the users table using auth_user_id
+                    const { data: userData, error: userError } = await supabase
+                        .from('users')
+                        .select('id')
+                        .eq('auth_user_id', userId)
+                        .single();
+                    
+                    if (userError) {
+                        console.error('❌ Error finding user by auth_user_id:', userError);
+                    } else if (userData) {
+                        console.log('🔍 Found user in database with ID:', userData.id);
+                        
+                        // Now search for companies with the database user ID
+                        const { data: dbCompanies, error: dbError } = await supabase
+                            .from('companies')
+                            .select('*')
+                            .eq('user_id', userData.id)
+                            .order('created_at', { ascending: false });
+                        
+                        if (dbError) {
+                            console.error('❌ Error fetching companies with database user ID:', dbError);
+                        } else {
+                            companies = dbCompanies;
+                            console.log(`✅ Found ${companies?.length || 0} companies using database user ID`);
+                        }
+                    }
+                }
+                
+                console.log(`✅ User: Found ${companies?.length || 0} companies for user ${userId}`);
+                console.log('📋 Company data:', companies);
+                
+                // Ensure we return an array even if no company is found
+                return res.json({ success: true, data: companies || [] });
             }
         } catch (error) {
             console.error('❌ Get companies error:', error);
             res.status(500).json({
                 success: false,
-                error: 'An error occurred while fetching company data.'
+                error: 'An error occurred while fetching company data.',
+                details: error.message
+            });
+        }
+    },
+
+    /**
+     * Debug endpoint to check user authentication and company data
+     */
+    async debugUserCompany(req, res) {
+        try {
+            const userId = req.user.userId || req.user.id;
+            
+            console.log('🐛 Debug endpoint called');
+            console.log('🐛 req.user:', req.user);
+            console.log('🐛 userId:', userId);
+            
+            // Check if user exists in users table
+            const { data: userData, error: userError } = await supabase
+                .from('users')
+                .select('id, email, first_name, last_name, role')
+                .eq('id', userId)
+                .single();
+            
+            console.log('🐛 User data:', userData);
+            console.log('🐛 User error:', userError);
+            
+            // Check if company exists for this user
+            const { data: companyData, error: companyError } = await supabase
+                .from('companies')
+                .select('*')
+                .eq('user_id', userId);
+            
+            console.log('🐛 Company data:', companyData);
+            console.log('🐛 Company error:', companyError);
+            
+            return res.json({
+                success: true,
+                debug: {
+                    req_user: req.user,
+                    extracted_userId: userId,
+                    user_exists: !!userData,
+                    user_data: userData,
+                    user_error: userError,
+                    companies_count: companyData?.length || 0,
+                    company_data: companyData,
+                    company_error: companyError
+                }
+            });
+            
+        } catch (error) {
+            console.error('❌ Debug endpoint error:', error);
+            return res.status(500).json({
+                success: false,
+                error: error.message
+            });
+        }
+    },
+
+    /**
+     * Delete company and all associated data
+     */
+    async deleteCompany(req, res) {
+        try {
+            console.log('🗑️ Delete company endpoint hit!');
+            console.log('🗑️ Request user:', req.user);
+            const authUserId = req.user.userId || req.user.id;
+            console.log('🗑️ Delete company request for auth user:', authUserId);
+
+            // First, get the local database user ID from the auth_user_id
+            const { data: localUser, error: userError } = await supabase
+                .from('users')
+                .select('id')
+                .eq('auth_user_id', authUserId)
+                .single();
+
+            if (userError || !localUser) {
+                console.error('❌ User not found in local database:', userError);
+                return res.status(404).json({
+                    success: false,
+                    error: 'User not found in local database'
+                });
+            }
+
+            const userId = localUser.id;
+            console.log('🔍 Using local user ID:', userId, 'for auth user:', authUserId);
+
+            // Get company details before deletion
+            console.log('🔍 Looking for company with user_id:', userId);
+            const { data: company, error: companyError } = await supabase
+                .from('companies')
+                .select('id, name, bucket_name')
+                .eq('user_id', userId)
+                .single();
+
+            console.log('🔍 Company query result:', { company, error: companyError });
+
+            if (companyError || !company) {
+                console.error('❌ Company not found:', companyError);
+                return res.status(404).json({
+                    success: false,
+                    error: 'Company not found'
+                });
+            }
+
+            console.log('🗑️ Deleting company:', company.name, 'with ID:', company.id);
+
+            // 1. Delete all QuDemos and their associated data
+            console.log('🗑️ Deleting QuDemos...');
+            const { error: qudemosError } = await supabase
+                .from('qudemos_new')
+                .delete()
+                .eq('company_id', company.id);
+
+            if (qudemosError) {
+                console.error('❌ Error deleting QuDemos:', qudemosError);
+                return res.status(500).json({
+                    success: false,
+                    error: 'Failed to delete QuDemos'
+                });
+            }
+
+            // 2. Delete analytics data
+            console.log('🗑️ Deleting analytics...');
+            const { error: analyticsError } = await supabase
+                .from('qudemo_analytics')
+                .delete()
+                .eq('company_id', company.id);
+
+            if (analyticsError) {
+                console.error('❌ Error deleting analytics:', analyticsError);
+            }
+
+            // 3. Delete interactions
+            console.log('🗑️ Deleting interactions...');
+            const { error: interactionsError } = await supabase
+                .from('interactions')
+                .delete()
+                .eq('company_id', company.id);
+
+            if (interactionsError) {
+                console.error('❌ Error deleting interactions:', interactionsError);
+            }
+
+            // 4. Delete knowledge sources
+            console.log('🗑️ Deleting knowledge sources...');
+            const { error: knowledgeError } = await supabase
+                .from('knowledge_sources')
+                .delete()
+                .eq('company_id', company.id);
+
+            if (knowledgeError) {
+                console.error('❌ Error deleting knowledge sources:', knowledgeError);
+            }
+
+            // 5. Delete company shares
+            console.log('🗑️ Deleting company shares...');
+            const { error: sharesError } = await supabase
+                .from('qudemo_shares')
+                .delete()
+                .eq('company_id', company.id);
+
+            if (sharesError) {
+                console.error('❌ Error deleting company shares:', sharesError);
+            }
+
+            // 6. Delete the company itself
+            console.log('🗑️ Deleting company record...');
+            const { error: deleteError } = await supabase
+                .from('companies')
+                .delete()
+                .eq('id', company.id);
+
+            if (deleteError) {
+                console.error('❌ Error deleting company:', deleteError);
+                return res.status(500).json({
+                    success: false,
+                    error: 'Failed to delete company'
+                });
+            }
+
+            // 7. Delete GCS bucket and all files (if bucket exists)
+            if (company.bucket_name || company.name) {
+                console.log('🗑️ Deleting GCS bucket for company:', company.name);
+                try {
+                    // Call Python backend to delete GCS bucket
+                    const pythonApiUrl = process.env.PYTHON_API_URL || 'http://localhost:8000';
+                    const deleteResponse = await fetch(`${pythonApiUrl}/delete-company-bucket`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            company_name: company.name
+                        })
+                    });
+
+                    if (deleteResponse.ok) {
+                        const deleteResult = await deleteResponse.json();
+                        console.log('✅ GCS bucket deletion result:', deleteResult);
+                    } else {
+                        console.error('❌ Python API error:', deleteResponse.status, deleteResponse.statusText);
+                    }
+                } catch (gcsError) {
+                    console.error('❌ Error calling Python API for GCS deletion:', gcsError);
+                }
+            }
+
+            console.log('✅ Company and all associated data deleted successfully');
+            return res.json({
+                success: true,
+                message: 'Company and all associated data deleted successfully'
+            });
+
+        } catch (error) {
+            console.error('❌ Delete company error:', error);
+            res.status(500).json({
+                success: false,
+                error: 'An error occurred while deleting the company'
             });
         }
     }

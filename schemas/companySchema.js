@@ -15,10 +15,13 @@ const createCompanySchema = Joi.object({
         }),
 
     description: Joi.string()
+        .min(10)
         .max(500)
-        .optional()
+        .required()
         .messages({
-            'string.max': 'Description must be less than 500 characters'
+            'string.min': 'Description must be at least 10 characters long',
+            'string.max': 'Description must be less than 500 characters',
+            'any.required': 'Description is required'
         }),
     website: Joi.string()
         .uri()

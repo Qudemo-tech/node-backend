@@ -29,6 +29,20 @@ router.post('/', auth.authenticateToken, validate(createCompanySchema), companyC
 router.get('/', auth.authenticateToken, companyController.getCompanies);
 
 /**
+ * @route   GET /api/companies/debug
+ * @desc    Debug endpoint to check user authentication and company data
+ * @access  Private
+ */
+router.get('/debug', auth.authenticateToken, companyController.debugUserCompany);
+
+/**
+ * @route   DELETE /api/companies
+ * @desc    Delete the current user's company and all associated data
+ * @access  Private
+ */
+router.delete('/', auth.authenticateToken, companyController.deleteCompany);
+
+/**
  * @route   POST /api/companies/fix-association
  * @desc    Fix user company association (utility endpoint)
  * @access  Private

@@ -11,7 +11,41 @@ const { v4: uuidv4 } = require('uuid');
 const getQudemos = async (req, res) => {
   try {
     const { companyId } = req.query;
-    const userId = req.user.userId || req.user.id;
+    const authUserId = req.user.userId || req.user.id;
+
+    // First try to find user by Database ID (for local JWT tokens)
+    let { data: userData, error: userError } = await supabase
+      .from('users')
+      .select('id')
+      .eq('id', authUserId)
+      .single();
+    
+    console.log('🔍 getQudemos: Looking up user by ID:', authUserId, 'Result:', { userData, userError });
+    
+    // If not found by ID, try by auth_user_id (for Supabase tokens)
+    if (userError && userError.code === 'PGRST116') {
+      console.log('🔍 getQudemos: Not found by ID, trying auth_user_id...');
+      const result = await supabase
+        .from('users')
+        .select('id')
+        .eq('auth_user_id', authUserId)
+        .single();
+      
+      userData = result.data;
+      userError = result.error;
+      console.log('🔍 getQudemos: Looking up user by auth_user_id:', authUserId, 'Result:', { userData, userError });
+    }
+    
+    if (userError) {
+      console.error('❌ Error finding user:', userError);
+      return res.status(500).json({
+        success: false,
+        error: 'User not found in database',
+        details: userError.message
+      });
+    }
+    
+    const userId = userData.id;
 
     console.log('🔍 Fetching qudemos for company:', companyId, 'user:', userId);
 
@@ -379,19 +413,93 @@ const deleteQudemoCompletely = async (qudemoId) => {
 const createQudemo = async (req, res) => {
   try {
     const { title, description, companyId, videos, knowledgeSources } = req.body;
-    const userId = req.user.userId || req.user.id;
+    const authUserId = req.user.userId || req.user.id;
+
+    // First try to find user by Database ID (for local JWT tokens)
+    console.log('🔍 createQudemo: Looking up user by ID:', authUserId);
+    let { data: userData, error: userError } = await supabase
+      .from('users')
+      .select('id')
+      .eq('id', authUserId)
+      .single();
+    
+    console.log('🔍 createQudemo: Result by ID:', { userData, userError });
+    
+    // If not found by ID, try by auth_user_id (for Supabase tokens)
+    if (userError && userError.code === 'PGRST116') {
+      console.log('🔍 createQudemo: Not found by ID, trying auth_user_id...');
+      const result = await supabase
+        .from('users')
+        .select('id')
+        .eq('auth_user_id', authUserId)
+        .single();
+      
+      userData = result.data;
+      userError = result.error;
+      console.log('🔍 createQudemo: Result by auth_user_id:', { userData, userError });
+    }
+    
+    if (userError) {
+      console.error('❌ Error finding user:', userError);
+      return res.status(500).json({
+        success: false,
+        error: 'User not found in database',
+        details: userError.message
+      });
+    }
+    
+    const userId = userData.id;
+    console.log('✅ Using database user ID for qudemo creation:', userId);
 
     console.log('🔍 Creating qudemo with data:', { title, description, companyId, userId, videosCount: videos?.length });
 
     // Validate company access
     console.log('🔍 Checking company access for user:', userId, 'company:', companyId);
     
-    const { data: companyAccess, error: accessError } = await supabase
+    // First try to find company with the database user ID
+    let { data: companyAccess, error: accessError } = await supabase
       .from('companies')
       .select('*')
       .eq('user_id', userId)
       .eq('id', companyId)
       .single();
+
+    // If no company found, try with the Supabase Auth User ID (for backward compatibility)
+    if (accessError && accessError.code === 'PGRST116') {
+      console.log('🔍 No company found with database user ID, trying with Supabase Auth User ID');
+      const authUserId = req.user.userId || req.user.id;
+      
+      const { data: authCompanyAccess, error: authAccessError } = await supabase
+        .from('companies')
+        .select('*')
+        .eq('user_id', authUserId)
+        .eq('id', companyId)
+        .single();
+      
+      if (!authAccessError && authCompanyAccess) {
+        console.log('✅ Found company with Supabase Auth User ID, updating to use Database User ID');
+        
+        // Update the company to use the correct Database User ID
+        const { error: updateError } = await supabase
+          .from('companies')
+          .update({ user_id: userId })
+          .eq('id', companyId);
+        
+        if (updateError) {
+          console.error('❌ Failed to update company user_id:', updateError);
+        } else {
+          console.log('✅ Company user_id updated to use Database User ID');
+        }
+        
+        companyAccess = authCompanyAccess;
+        companyAccess.user_id = userId; // Update the local object
+        accessError = null;
+      } else {
+        console.log('❌ No company found with either user ID format');
+        companyAccess = null;
+        accessError = authAccessError || accessError;
+      }
+    }
 
     console.log('🔍 Company access result:', { companyAccess, accessError });
 
@@ -566,7 +674,42 @@ const updateQudemo = async (req, res) => {
   try {
     const { id } = req.params;
     const { title, description, status, videos, knowledgeSources } = req.body;
-    const userId = req.user.userId || req.user.id;
+    const authUserId = req.user.userId || req.user.id;
+
+    // First try to find user by Database ID (for local JWT tokens)
+    console.log('🔍 updateQudemo: Looking up user by ID:', authUserId);
+    let { data: userData, error: userError } = await supabase
+      .from('users')
+      .select('id')
+      .eq('id', authUserId)
+      .single();
+    
+    console.log('🔍 updateQudemo: Result by ID:', { userData, userError });
+    
+    // If not found by ID, try by auth_user_id (for Supabase tokens)
+    if (userError && userError.code === 'PGRST116') {
+      console.log('🔍 updateQudemo: Not found by ID, trying auth_user_id...');
+      const result = await supabase
+        .from('users')
+        .select('id')
+        .eq('auth_user_id', authUserId)
+        .single();
+      
+      userData = result.data;
+      userError = result.error;
+      console.log('🔍 updateQudemo: Result by auth_user_id:', { userData, userError });
+    }
+    
+    if (userError) {
+      console.error('❌ Error finding user:', userError);
+      return res.status(500).json({
+        success: false,
+        error: 'User not found in database',
+        details: userError.message
+      });
+    }
+    
+    const userId = userData.id;
 
     // Get qudemo and validate access
     const { data: qudemo, error: qudemoError } = await supabase
@@ -695,7 +838,42 @@ const updateQudemo = async (req, res) => {
 const deleteQudemo = async (req, res) => {
   try {
     const { id } = req.params;
-    const userId = req.user.userId || req.user.id;
+    const authUserId = req.user.userId || req.user.id;
+
+    // First try to find user by Database ID (for local JWT tokens)
+    console.log('🔍 deleteQudemo: Looking up user by ID:', authUserId);
+    let { data: userData, error: userError } = await supabase
+      .from('users')
+      .select('id')
+      .eq('id', authUserId)
+      .single();
+    
+    console.log('🔍 deleteQudemo: Result by ID:', { userData, userError });
+    
+    // If not found by ID, try by auth_user_id (for Supabase tokens)
+    if (userError && userError.code === 'PGRST116') {
+      console.log('🔍 deleteQudemo: Not found by ID, trying auth_user_id...');
+      const result = await supabase
+        .from('users')
+        .select('id')
+        .eq('auth_user_id', authUserId)
+        .single();
+      
+      userData = result.data;
+      userError = result.error;
+      console.log('🔍 deleteQudemo: Result by auth_user_id:', { userData, userError });
+    }
+    
+    if (userError) {
+      console.error('❌ Error finding user:', userError);
+      return res.status(500).json({
+        success: false,
+        error: 'User not found in database',
+        details: userError.message
+      });
+    }
+    
+    const userId = userData.id;
 
     console.log(`🗑️ Delete request - Qudemo ID: ${id}, User ID: ${userId}`);
 

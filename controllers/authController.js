@@ -120,6 +120,7 @@ const authController = {
                 .single();
 
             console.log('🔍 Duplicate user check result:', { duplicateUser, duplicateCheckError });
+            console.log('🔍 Looking for auth_user_id:', authUserId);
 
             if (duplicateUser && !duplicateCheckError) {
                 console.log('✅ User already exists, returning existing user:', duplicateUser.id);
@@ -176,49 +177,90 @@ const authController = {
                 // Handle unique constraint violations (user already exists)
                 if (insertError.code === '23505') {
                     console.log('🔄 Email already exists, updating existing user with new auth_user_id');
+                    console.log('🔄 Email:', normalizedEmail);
+                    console.log('🔄 Auth user ID:', authUserId);
                     
                     // For Google OAuth users, update the existing user with the new auth_user_id
                     if (isGoogleUser) {
-                        const { data: updatedUser, error: updateError } = await supabase
-                            .from('users')
-                            .update({
-                                auth_user_id: authUserId,
-                                auth_provider: 'google',
-                                first_name: firstName,
-                                last_name: lastName,
-                                last_name_initial: lastNameInitial,
-                                display_name: displayName || firstName,
-                                needs_profile_completion: needsProfileCompletion,
-                                updated_at: new Date().toISOString()
-                            })
-                            .eq('email', normalizedEmail)
-                            .select('id, email, first_name, last_name, role')
-                            .single();
+                        const updateData = {
+                            auth_user_id: authUserId,
+                            auth_provider: 'google',
+                            first_name: firstName,
+                            last_name: lastName,
+                            last_name_initial: lastNameInitial,
+                            display_name: displayName || firstName,
+                            needs_profile_completion: needsProfileCompletion
+                        };
+                        
+                        // Only add updated_at if the column exists (check schema first)
+                        try {
+                            const { data: updatedUser, error: updateError } = await supabase
+                                .from('users')
+                                .update(updateData)
+                                .eq('email', normalizedEmail)
+                                .select('id, email, first_name, last_name, role')
+                                .single();
 
-                        if (updateError) {
-                            console.error('❌ Failed to update existing user:', updateError);
-                            return res.status(500).json({
-                                success: false,
-                                error: 'Failed to update existing user',
-                                details: updateError.message
+                            if (updateError) {
+                                console.error('❌ Failed to update existing user:', updateError);
+                                return res.status(500).json({
+                                    success: false,
+                                    error: 'Failed to update existing user',
+                                    details: updateError.message
+                                });
+                            }
+
+                            console.log('✅ Updated existing user with new auth_user_id:', updatedUser.id);
+                            
+                            return res.status(200).json({
+                                success: true,
+                                message: 'Google user linked to existing account',
+                                data: {
+                                    user: {
+                                        id: updatedUser.id,
+                                        email: updatedUser.email,
+                                        firstName: updatedUser.first_name,
+                                        lastName: updatedUser.last_name,
+                                        role: updatedUser.role
+                                    }
+                                }
+                            });
+                        } catch (updateError) {
+                            console.error('❌ Update failed, trying without updated_at:', updateError);
+                            
+                            // Try again without updated_at field
+                            const { data: updatedUser, error: updateError2 } = await supabase
+                                .from('users')
+                                .update(updateData)
+                                .eq('email', normalizedEmail)
+                                .select('id, email, first_name, last_name, role')
+                                .single();
+
+                            if (updateError2) {
+                                console.error('❌ Failed to update existing user (second attempt):', updateError2);
+                                return res.status(500).json({
+                                    success: false,
+                                    error: 'Failed to update existing user',
+                                    details: updateError2.message
+                                });
+                            }
+
+                            console.log('✅ Updated existing user (without updated_at):', updatedUser.id);
+                            
+                            return res.status(200).json({
+                                success: true,
+                                message: 'Google user linked to existing account',
+                                data: {
+                                    user: {
+                                        id: updatedUser.id,
+                                        email: updatedUser.email,
+                                        firstName: updatedUser.first_name,
+                                        lastName: updatedUser.last_name,
+                                        role: updatedUser.role
+                                    }
+                                }
                             });
                         }
-
-                        console.log('✅ Updated existing user with new auth_user_id:', updatedUser.id);
-                        
-                        return res.status(200).json({
-                            success: true,
-                            message: 'Google user linked to existing account',
-                            data: {
-                                user: {
-                                    id: updatedUser.id,
-                                    email: updatedUser.email,
-                                    firstName: updatedUser.first_name,
-                                    lastName: updatedUser.last_name,
-                                    role: updatedUser.role
-                                }
-                            }
-                        });
                     } else {
                         return res.status(409).json({
                             success: false,
@@ -295,8 +337,22 @@ const authController = {
                 }
             }
 
-            // For Google OAuth users, don't generate our own tokens
+            // Generate tokens for all users (both Google OAuth and regular users)
+            const accessToken = generateToken(user.id, user.role);
+            const refreshToken = jwt.sign(
+                { userId: user.id },
+                process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET,
+                { expiresIn: '30d' }
+            );
+
+            // Store refresh token
+            await supabase
+                .from('users')
+                .update({ refresh_token: refreshToken })
+                .eq('id', user.id);
+
             if (isGoogleUser) {
+                // For Google OAuth users, return local tokens for consistency
                 res.status(201).json({
                     success: true,
                     message: 'Google user registered successfully',
@@ -307,24 +363,15 @@ const authController = {
                             firstName: user.first_name,
                             lastName: user.last_name,
                             role: user.role
+                        },
+                        tokens: {
+                            accessToken,
+                            refreshToken
                         }
                     }
                 });
             } else {
-                // Generate tokens for regular users
-                const accessToken = generateToken(user.id, user.role);
-                const refreshToken = jwt.sign(
-                    { userId: user.id },
-                    process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET,
-                    { expiresIn: '30d' }
-                );
-
-                // Store refresh token
-                await supabase
-                    .from('users')
-                    .update({ refresh_token: refreshToken })
-                    .eq('id', user.id);
-
+                // For regular users, return the same tokens
                 res.status(201).json({
                     success: true,
                     message: 'User registered successfully',
@@ -358,7 +405,7 @@ const authController = {
      */
     async login(req, res) {
         try {
-            let { email, password } = req.body;
+            let { email, password, isGoogleUser = false } = req.body;
 
             // Normalize email
             const normalizedEmail = (email || '').trim().toLowerCase();
@@ -387,13 +434,16 @@ const authController = {
                 });
             }
 
-            // Verify password
-            const isValidPassword = await bcrypt.compare(password, user.password_hash);
-            if (!isValidPassword) {
-                return res.status(401).json({
-                    success: false,
-                    error: 'Invalid email or password'
-                });
+            // For Google OAuth users, skip password verification
+            if (!isGoogleUser) {
+                // Verify password for regular users
+                const isValidPassword = await bcrypt.compare(password, user.password_hash);
+                if (!isValidPassword) {
+                    return res.status(401).json({
+                        success: false,
+                        error: 'Invalid email or password'
+                    });
+                }
             }
 
             // Generate tokens
@@ -512,13 +562,28 @@ const authController = {
         try {
             console.log('🔍 getProfile: Auth user ID from token:', req.user.userId);
             
-            const { data: user, error } = await supabase
+            // First try to find user by Database ID (for local JWT tokens)
+            let { data: user, error } = await supabase
                 .from('users')
                 .select('id, email, first_name, last_name, last_name_initial, display_name, auth_provider, needs_profile_completion, role, created_at')
-                .eq('auth_user_id', req.user.userId)
+                .eq('id', req.user.userId)
                 .single();
 
-            console.log('🔍 getProfile: Database query result:', { user, error });
+            console.log('🔍 getProfile: Database query result (by id):', { user, error });
+
+            // If not found by ID, try by auth_user_id (for Supabase tokens)
+            if (error && error.code === 'PGRST116') {
+                console.log('🔍 getProfile: Not found by ID, trying auth_user_id...');
+                const result = await supabase
+                    .from('users')
+                    .select('id, email, first_name, last_name, last_name_initial, display_name, auth_provider, needs_profile_completion, role, created_at')
+                    .eq('auth_user_id', req.user.userId)
+                    .single();
+                
+                user = result.data;
+                error = result.error;
+                console.log('🔍 getProfile: Database query result (by auth_user_id):', { user, error });
+            }
 
             if (error) {
                 console.error('❌ getProfile: Database error:', error);
@@ -573,7 +638,7 @@ const authController = {
             if (avatar) updateData.avatar = avatar;
             if (preferences) updateData.preferences = preferences;
 
-            updateData.updated_at = new Date().toISOString();
+            // Note: updated_at field removed as it doesn't exist in the database schema
 
             const { data: user, error } = await supabase
                 .from('users')
@@ -642,8 +707,8 @@ const authController = {
             await supabase
                 .from('users')
                 .update({ 
-                    password_hash: hashedPassword,
-                    updated_at: new Date().toISOString()
+                    password_hash: hashedPassword
+                    // Note: updated_at field removed as it doesn't exist in the database schema
                 })
                 .eq('id', req.user.id);
 
@@ -767,8 +832,8 @@ const authController = {
                 .update({ 
                     password_hash: hashedPassword,
                     reset_token: null,
-                    reset_token_expires: null,
-                    updated_at: new Date().toISOString()
+                    reset_token_expires: null
+                    // Note: updated_at field removed as it doesn't exist in the database schema
                 })
                 .eq('id', decoded.userId);
 

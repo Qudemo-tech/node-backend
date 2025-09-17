@@ -66,7 +66,14 @@ const authenticateToken = async (req, res, next) => {
                 return res.status(403).json({ success: false, error: 'Invalid token' });
             }
             console.log('✅ Local JWT verified for user:', user.userId);
-            req.user = user;
+            // Ensure consistent user ID format
+            req.user = {
+                ...user,
+                userId: user.userId,
+                id: user.userId, // Add id field for compatibility
+                role: user.role || 'user'
+            };
+            console.log('🔍 Auth middleware: Set req.user (JWT):', req.user);
             return next();
         });
 
