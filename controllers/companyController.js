@@ -16,24 +16,48 @@ const companyController = {
             const authUserId = req.user.userId || req.user.id;
             const { name, description, website, logo } = req.body;
 
-            // Get the database user ID from the users table using auth_user_id
-            console.log('🔍 Getting database user ID for auth_user_id:', authUserId);
-            const { data: userData, error: userError } = await supabase
+            console.log('🔍 Company creation request for auth user ID:', authUserId);
+            console.log('🔍 Request user object:', req.user);
+
+            let userId;
+            
+            // First try to find user by auth_user_id (for OAuth users)
+            console.log('🔍 Trying to find user by auth_user_id:', authUserId);
+            const { data: userDataByAuthId, error: userErrorByAuthId } = await supabase
                 .from('users')
                 .select('id')
                 .eq('auth_user_id', authUserId)
                 .single();
             
-            if (userError) {
-                console.error('❌ Error finding user by auth_user_id:', userError);
-                return res.status(500).json({
-                    success: false,
-                    error: 'User not found in database',
-                    details: userError.message
-                });
+            if (!userErrorByAuthId && userDataByAuthId) {
+                // Found by auth_user_id (OAuth user)
+                userId = userDataByAuthId.id;
+                console.log('✅ Found user by auth_user_id, using database ID:', userId);
+            } else {
+                // Try to find user by database ID (for email/password users)
+                console.log('🔍 Not found by auth_user_id, trying by database ID:', authUserId);
+                const { data: userDataById, error: userErrorById } = await supabase
+                    .from('users')
+                    .select('id')
+                    .eq('id', authUserId)
+                    .single();
+                
+                if (!userErrorById && userDataById) {
+                    // Found by database ID (email/password user)
+                    userId = userDataById.id;
+                    console.log('✅ Found user by database ID:', userId);
+                } else {
+                    console.error('❌ User not found by either auth_user_id or database ID');
+                    console.error('❌ Auth user ID error:', userErrorByAuthId);
+                    console.error('❌ Database ID error:', userErrorById);
+                    return res.status(500).json({
+                        success: false,
+                        error: 'User not found in database',
+                        details: 'User not found by either authentication method'
+                    });
+                }
             }
             
-            const userId = userData.id;
             console.log('✅ Using database user ID for company creation:', userId);
 
             // Check if companies table exists
@@ -641,50 +665,50 @@ const companyController = {
                 console.log('👤 Regular user - fetching user company');
                 console.log('🔍 Searching for company with user_id:', userId);
                 
-                // First try to find company with the current user ID (Supabase Auth ID)
-                let { data: companies, error } = await supabase
+                let databaseUserId;
+                
+                // First try to find user by auth_user_id (for OAuth users)
+                const { data: userDataByAuthId, error: userErrorByAuthId } = await supabase
+                    .from('users')
+                    .select('id')
+                    .eq('auth_user_id', userId)
+                    .single();
+                
+                if (!userErrorByAuthId && userDataByAuthId) {
+                    // Found by auth_user_id (OAuth user)
+                    databaseUserId = userDataByAuthId.id;
+                    console.log('✅ Found user by auth_user_id, using database ID:', databaseUserId);
+                } else {
+                    // Try to find user by database ID (for email/password users)
+                    const { data: userDataById, error: userErrorById } = await supabase
+                        .from('users')
+                        .select('id')
+                        .eq('id', userId)
+                        .single();
+                    
+                    if (!userErrorById && userDataById) {
+                        // Found by database ID (email/password user)
+                        databaseUserId = userDataById.id;
+                        console.log('✅ Found user by database ID:', databaseUserId);
+                    } else {
+                        console.error('❌ User not found by either auth_user_id or database ID');
+                        return res.status(500).json({
+                            success: false,
+                            error: 'User not found in database'
+                        });
+                    }
+                }
+                
+                // Search for companies with the correct database user ID
+                const { data: companies, error } = await supabase
                     .from('companies')
                     .select('*')
-                    .eq('user_id', userId)
+                    .eq('user_id', databaseUserId)
                     .order('created_at', { ascending: false });
 
                 if (error) {
                     console.error('❌ Supabase error in getCompanies:', error);
-                    console.error('❌ Error code:', error.code);
-                    console.error('❌ Error message:', error.message);
                     throw error;
-                }
-                
-                // If no companies found, try to find by auth_user_id in users table
-                if (!companies || companies.length === 0) {
-                    console.log('🔍 No companies found with user_id, checking by auth_user_id');
-                    
-                    // Get the database user ID from the users table using auth_user_id
-                    const { data: userData, error: userError } = await supabase
-                        .from('users')
-                        .select('id')
-                        .eq('auth_user_id', userId)
-                        .single();
-                    
-                    if (userError) {
-                        console.error('❌ Error finding user by auth_user_id:', userError);
-                    } else if (userData) {
-                        console.log('🔍 Found user in database with ID:', userData.id);
-                        
-                        // Now search for companies with the database user ID
-                        const { data: dbCompanies, error: dbError } = await supabase
-                            .from('companies')
-                            .select('*')
-                            .eq('user_id', userData.id)
-                            .order('created_at', { ascending: false });
-                        
-                        if (dbError) {
-                            console.error('❌ Error fetching companies with database user ID:', dbError);
-                        } else {
-                            companies = dbCompanies;
-                            console.log(`✅ Found ${companies?.length || 0} companies using database user ID`);
-                        }
-                    }
                 }
                 
                 console.log(`✅ User: Found ${companies?.length || 0} companies for user ${userId}`);
