@@ -1615,7 +1615,14 @@ const generateShareLink = async (req, res) => {
     let baseUrl;
     if (process.env.NODE_ENV === 'production') {
       // In production, use the configured FRONTEND_URL or default to production domain
+      // Force custom domain to prevent Vercel redirects
       baseUrl = process.env.FRONTEND_URL || 'https://qudemo.com';
+      
+      // Additional check: if we detect Vercel domain in FRONTEND_URL, override it
+      if (baseUrl.includes('qu-demo.vercel.app') || baseUrl.includes('qudemo.vercel.app')) {
+        console.log('🔧 Overriding Vercel domain with custom domain');
+        baseUrl = 'https://qudemo.com';
+      }
     } else {
       // In development, use localhost
       baseUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
