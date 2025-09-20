@@ -24,7 +24,7 @@ services:
       - key: GEMINI_API_KEY
         sync: false
       - key: FRONTEND_URL
-        value: https://qu-demo.vercel.app
+        value: https://qudemo.com
       # Note: PINECONE_API_KEY removed - now using GCS-based storage
         sync: false
     healthCheckPath: /health

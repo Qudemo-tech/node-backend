@@ -1615,7 +1615,7 @@ const generateShareLink = async (req, res) => {
     let baseUrl;
     if (process.env.NODE_ENV === 'production') {
       // In production, use the configured FRONTEND_URL or default to production domain
-      baseUrl = process.env.FRONTEND_URL || 'https://qu-demo.vercel.app';
+      baseUrl = process.env.FRONTEND_URL || 'https://qudemo.com';
     } else {
       // In development, use localhost
       baseUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
