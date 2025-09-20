@@ -26,7 +26,6 @@ services:
       - key: FRONTEND_URL
         value: https://qudemo.com
       # Note: PINECONE_API_KEY removed - now using GCS-based storage
-        sync: false
     healthCheckPath: /health
     autoDeploy: true
     scaling:
