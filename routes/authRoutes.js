@@ -20,7 +20,7 @@ const {
  * @desc    Register a new user
  * @access  Public
  */
-router.post('/register', authenticateToken, normalizeName, validateRequest(registerSchema), authController.register);
+router.post('/register', normalizeName, validateRequest(registerSchema), authController.register);
 
 /**
  * @route   POST /api/auth/login

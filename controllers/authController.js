@@ -7,6 +7,10 @@ const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
+
+// Debug Supabase configuration
+console.log('🔍 Supabase URL:', process.env.SUPABASE_URL ? 'Set' : 'Not set');
+console.log('🔍 Supabase Service Role Key:', process.env.SUPABASE_SERVICE_ROLE_KEY ? 'Set' : 'Not set');
 const { generateToken, verifyRefreshToken } = require('../middleware/auth');
 
 const authController = {
@@ -27,6 +31,15 @@ const authController = {
                 role = 'user', 
                 isGoogleUser = false 
             } = req.body;
+
+            // Check if Supabase is configured
+            if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+                console.log('❌ Supabase not configured - using fallback registration');
+                return res.status(500).json({
+                    success: false,
+                    error: 'Database not configured. Please contact administrator.'
+                });
+            }
 
             console.log('🔍 Register request body:', { 
                 email, 
@@ -53,19 +66,30 @@ const authController = {
                 console.log('🔍 Google user - skipping email check, will check by auth_user_id later');
             } else {
                 // Check if user already exists (by normalized email) for non-Google users
-                const { data: existingUser, error: checkError } = await supabase
-                    .from('users')
-                    .select('id')
-                    .eq('email', normalizedEmail)
-                    .single();
+                let existingUser = null;
+                try {
+                    console.log('🔍 Checking for existing user with email:', normalizedEmail);
+                    const { data, error: checkError } = await supabase
+                        .from('users')
+                        .select('id')
+                        .eq('email', normalizedEmail)
+                        .single();
 
-                console.log('🔍 Existing user check result:', { existingUser, checkError });
+                    existingUser = data;
+                    console.log('🔍 Existing user check result:', { existingUser, checkError });
 
-                if (checkError && checkError.code !== 'PGRST116') {
-                    console.log('❌ Error checking user existence:', checkError);
+                    if (checkError && checkError.code !== 'PGRST116') {
+                        console.log('❌ Error checking user existence:', checkError);
+                        return res.status(500).json({
+                            success: false,
+                            error: 'Database connection error. Please try again.'
+                        });
+                    }
+                } catch (fetchError) {
+                    console.error('❌ Supabase fetch error:', fetchError);
                     return res.status(500).json({
                         success: false,
-                        error: 'Error checking user existence'
+                        error: 'Database connection failed. Please check server configuration.'
                     });
                 }
 
@@ -100,46 +124,120 @@ const authController = {
                 hashedPassword = await bcrypt.hash(password, saltRounds);
             }
 
-            // Get the Supabase user ID from the token (set by auth middleware)
-            console.log('🔍 Full req.user object:', req.user);
-            const authUserId = req.user?.userId;
-            console.log('🔍 Auth user ID from token:', authUserId);
-            if (!authUserId) {
-                console.log('❌ No auth user ID found');
-                return res.status(401).json({ 
-                    success: false, 
-                    error: 'Authentication user ID missing' 
-                });
+            // For regular email/password registration, we don't need authUserId
+            // For Google OAuth, authUserId would come from the token
+            let authUserId = null;
+            if (isGoogleUser && req.user?.userId) {
+                authUserId = req.user.userId;
+                console.log('🔍 Google user auth ID:', authUserId);
+            } else if (!isGoogleUser) {
+                console.log('✅ Regular email/password registration - no auth ID needed');
             }
 
             // Check if user already exists (duplicate protection)
-            const { data: duplicateUser, error: duplicateCheckError } = await supabase
-                .from('users')
-                .select('id, email, auth_user_id')
-                .eq('auth_user_id', authUserId)
-                .single();
+            let duplicateUser = null;
+            let duplicateCheckError = null;
+            
+            if (authUserId) {
+                // For Google users, check by auth_user_id
+                const result = await supabase
+                    .from('users')
+                    .select('id, email, auth_user_id')
+                    .eq('auth_user_id', authUserId)
+                    .single();
+                duplicateUser = result.data;
+                duplicateCheckError = result.error;
+            } else {
+                // For regular users, check by email
+                const result = await supabase
+                    .from('users')
+                    .select('id, email, auth_user_id')
+                    .eq('email', normalizedEmail)
+                    .single();
+                duplicateUser = result.data;
+                duplicateCheckError = result.error;
+            }
 
             console.log('🔍 Duplicate user check result:', { duplicateUser, duplicateCheckError });
-            console.log('🔍 Looking for auth_user_id:', authUserId);
 
-            if (duplicateUser && !duplicateCheckError) {
-                console.log('✅ User already exists, returning existing user:', duplicateUser.id);
-                return res.status(200).json({
-                    success: true,
-                    message: 'User already exists',
-                    user: {
-                        id: duplicateUser.id,
-                        email: duplicateUser.email,
-                        auth_user_id: duplicateUser.auth_user_id
-                    }
-                });
-            }
+               if (duplicateUser && !duplicateCheckError) {
+                   console.log('✅ User already exists, checking if needs Google linking...');
+                   
+                   // If this is a Google user but the existing user isn't linked to Google
+                   if (isGoogleUser && !duplicateUser.auth_user_id) {
+                       console.log('🔗 Linking existing user to Google account...');
+                       
+                       // Update the existing user with Google auth_user_id
+                       const updateData = {
+                           auth_user_id: authUserId,
+                           auth_provider: 'google',
+                           needs_profile_completion: needsProfileCompletion,
+                           is_active: true,
+                           updated_at: new Date().toISOString()
+                       };
+                       
+                       const { data: updatedUser, error: updateError } = await supabase
+                           .from('users')
+                           .update(updateData)
+                           .eq('id', duplicateUser.id)
+                           .select('id, email, first_name, last_name, role, auth_user_id')
+                           .single();
+                           
+                       if (updateError) {
+                           console.error('❌ Error linking user to Google:', updateError);
+                           return res.status(500).json({ success: false, error: 'Error linking user to Google account' });
+                       }
+                       
+                       console.log('✅ User linked to Google successfully:', updatedUser.id);
+                       
+                       // Generate tokens for the linked user using DATABASE ID
+                       const accessToken = generateToken(updatedUser.id, updatedUser.role);
+                       const refreshToken = jwt.sign(
+                           { userId: updatedUser.id },
+                           process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET,
+                           { expiresIn: '30d' }
+                       );
+                       
+                       // Store refresh token
+                       await supabase
+                           .from('users')
+                           .update({ refresh_token: refreshToken })
+                           .eq('id', updatedUser.id);
+                       
+                       return res.status(200).json({
+                           success: true,
+                           message: 'User linked to Google account successfully',
+                           data: { 
+                               user: updatedUser, 
+                               tokens: { accessToken, refreshToken }
+                           }
+                       });
+                   }
+                   
+                   // If user already exists and is properly linked, return existing user
+                   console.log('✅ User already exists and properly linked:', duplicateUser.id);
+                   const accessToken = generateToken(duplicateUser.id, duplicateUser.role);
+                   const refreshToken = jwt.sign(
+                       { userId: duplicateUser.id },
+                       process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET,
+                       { expiresIn: '30d' }
+                   );
+                   
+                   return res.status(200).json({
+                       success: true,
+                       message: 'User already exists',
+                       data: { 
+                           user: duplicateUser, 
+                           tokens: { accessToken, refreshToken }
+                       }
+                   });
+               }
 
             console.log('✅ No duplicate user found, proceeding with user creation');
 
             // Create user with normalized email
             const userData = {
-                auth_user_id: authUserId, // Link to Supabase user
+                auth_user_id: authUserId || null, // Link to Supabase user (null for regular users)
                 email: normalizedEmail,
                 first_name: firstName,
                 last_name: lastName,
