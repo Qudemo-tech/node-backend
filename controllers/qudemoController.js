@@ -127,19 +127,6 @@ const getQudemos = async (req, res) => {
       created_at: q.created_at,
       updated_at: q.updated_at
     })));
-    
-    // Also check if there are any inactive qudemos for debugging
-    const { data: inactiveQudemos, error: inactiveError } = await supabase
-      .from('qudemos_new')
-      .select('id, title, is_active, updated_at')
-      .eq('company_id', companyId)
-      .eq('is_active', false);
-    
-    if (!inactiveError && inactiveQudemos?.length > 0) {
-      console.log('🔍 Found inactive (deleted) qudemos:', inactiveQudemos);
-    } else {
-      console.log('🔍 No inactive qudemos found for this company');
-    }
 
     // Get videos for each qudemo
     const formattedQudemos = await Promise.all((qudemos || []).map(async (qudemo) => {
@@ -212,16 +199,13 @@ const getQudemos = async (req, res) => {
       };
     }));
 
-    // Filter out QuDemos that have no content (no videos and no knowledge sources)
-    const qudemosWithContent = formattedQudemos.filter(qudemo => 
-      qudemo.video_count > 0 || qudemo.knowledge_count > 0
-    );
-
-    console.log(`📊 Filtered QuDemos: ${qudemosWithContent.length} with content out of ${formattedQudemos.length} total`);
+    // Show all active QuDemos regardless of content
+    // (Users can see empty QuDemos and add content to them)
+    console.log(`📊 Showing all active QuDemos: ${formattedQudemos.length} total`);
 
     res.json({
       success: true,
-      data: qudemosWithContent
+      data: formattedQudemos
     });
 
   } catch (error) {
@@ -339,10 +323,10 @@ const getQudemo = async (req, res) => {
   }
 };
 
-// Helper function to soft delete a qudemo and clean up related data
+// Helper function to hard delete a qudemo and clean up related data
 const deleteQudemoCompletely = async (qudemoId) => {
   try {
-    console.log(`🗑️ Soft deleting qudemo ${qudemoId} and cleaning up related data...`);
+    console.log(`🗑️ Hard deleting qudemo ${qudemoId} and cleaning up related data...`);
     
     // Delete in order to respect foreign key constraints
     const { error: videosError } = await supabase
@@ -372,34 +356,33 @@ const deleteQudemoCompletely = async (qudemoId) => {
       console.error(`❌ Error deleting analytics for qudemo ${qudemoId}:`, analyticsError);
     }
     
-    // Soft delete: mark as inactive instead of hard delete
-    const { data: updateResult, error: qudemoError } = await supabase
+    // Hard delete: completely remove the qudemo from database
+    const { data: deleteResult, error: qudemoError } = await supabase
       .from('qudemos_new')
-      .update({ 
-        is_active: false,
-        updated_at: new Date().toISOString()
-      })
+      .delete()
       .eq('id', qudemoId)
       .select();
     
     if (qudemoError) {
-      console.error(`❌ Error soft deleting qudemo ${qudemoId}:`, qudemoError);
+      console.error(`❌ Error hard deleting qudemo ${qudemoId}:`, qudemoError);
       return false;
     }
     
-    console.log(`✅ Qudemo ${qudemoId} soft deleted (marked as inactive)`, updateResult);
+    console.log(`✅ Qudemo ${qudemoId} hard deleted (completely removed from database)`, deleteResult);
     
-    // Verify the update worked
+    // Verify the deletion worked
     const { data: verifyResult, error: verifyError } = await supabase
       .from('qudemos_new')
-      .select('id, is_active')
+      .select('id')
       .eq('id', qudemoId)
       .single();
     
-    if (verifyError) {
-      console.error(`❌ Error verifying soft delete for qudemo ${qudemoId}:`, verifyError);
+    if (verifyError && verifyError.code === 'PGRST116') {
+      console.log(`✅ Verification: Qudemo ${qudemoId} successfully deleted (not found in database)`);
+    } else if (verifyError) {
+      console.error(`❌ Error verifying hard delete for qudemo ${qudemoId}:`, verifyError);
     } else {
-      console.log(`🔍 Verification: Qudemo ${qudemoId} is_active status:`, verifyResult?.is_active);
+      console.log(`⚠️ Warning: Qudemo ${qudemoId} still exists after deletion attempt`);
     }
     
     return true;
@@ -927,7 +910,7 @@ const deleteQudemo = async (req, res) => {
 
     console.log('✅ Company access validated for deletion');
 
-    console.log(`🗑️ Soft deleting qudemo ${id} and cleaning up associated data...`);
+    console.log(`🗑️ Hard deleting qudemo ${id} and cleaning up associated data...`);
 
     // First, get counts of associated data for logging
     const { data: videos, error: videosError } = await supabase
@@ -974,18 +957,18 @@ const deleteQudemo = async (req, res) => {
       console.log(`⚠️ Could not cleanup data:`, cleanupError.message);
     }
 
-    // Use the soft deletion function to properly clean up all related data
+    // Use the hard deletion function to properly clean up all related data
     const deletionSuccess = await deleteQudemoCompletely(id);
     
     if (!deletionSuccess) {
-      console.error('❌ Error soft deleting qudemo');
+      console.error('❌ Error hard deleting qudemo');
       return res.status(500).json({
         success: false,
-        error: 'Failed to soft delete qudemo'
+        error: 'Failed to hard delete qudemo'
       });
     }
 
-    console.log(`✅ Qudemo ${id} soft deleted and all associated data cleaned up successfully`);
+    console.log(`✅ Qudemo ${id} hard deleted and all associated data cleaned up successfully`);
 
     res.json({
       success: true,
