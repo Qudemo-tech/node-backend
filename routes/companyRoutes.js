@@ -4,6 +4,7 @@ const router = express.Router();
 const companyController = require('../controllers/companyController');
 const { validate, validateParams } = require('../middleware/validation');
 const auth = require('../middleware/auth'); // Import auth middleware
+const multer = require('multer'); // Import multer for file uploads
 const { 
     createCompanySchema, 
     updateCompanySchema, 
@@ -11,6 +12,23 @@ const {
     companyNameSchema
 } = require('../schemas/companySchema');
 const leadController = require('../controllers/leadController');
+
+// Configure multer for file uploads
+const upload = multer({
+    storage: multer.memoryStorage(),
+    limits: {
+        fileSize: 5 * 1024 * 1024, // 5MB limit
+    },
+    fileFilter: (req, file, cb) => {
+        console.log('🔍 Multer file filter - file:', file.originalname, 'mimetype:', file.mimetype);
+        if (file.mimetype.startsWith('image/')) {
+            cb(null, true);
+        } else {
+            console.log('❌ Multer file filter - rejected file:', file.originalname);
+            cb(new Error('Only image files are allowed'), false);
+        }
+    }
+});
 
 // Company management routes
 
@@ -41,6 +59,17 @@ router.get('/debug', auth.authenticateToken, companyController.debugUserCompany)
  * @access  Private
  */
 router.delete('/', auth.authenticateToken, companyController.deleteCompany);
+
+/**
+ * @route   POST /api/companies/upload-logo
+ * @desc    Upload company logo
+ * @access  Private
+ */
+console.log('🔍 Registering upload-logo route');
+router.post('/upload-logo', (req, res, next) => {
+    console.log('🔍 Upload-logo route middleware hit');
+    next();
+}, auth.authenticateToken, upload.single('logo'), companyController.uploadCompanyLogo);
 
 /**
  * @route   POST /api/companies/fix-association

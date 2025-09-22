@@ -1,4 +1,6 @@
 const { createClient } = require('@supabase/supabase-js');
+const { logCompanyOperation } = require('../middleware/logging');
+const { ACTIONS, RESOURCES } = require('../services/companyLogger');
 
 // Create Supabase client
 const supabase = createClient(
@@ -147,6 +149,27 @@ const companyController = {
                     details: insertError.details
                 });
             }
+
+            // Log company creation
+            // Set company info in request for logging
+            req.companyId = company.id;
+            req.companyName = company.name;
+            
+            await logCompanyOperation(
+                req,
+                ACTIONS.CREATE_COMPANY,
+                RESOURCES.COMPANY,
+                company.id,
+                `Company "${company.name}" created successfully`,
+                {
+                    companyId: company.id,
+                    companyName: company.name,
+                    displayName: company.display_name,
+                    website: company.website,
+                    bucketName: company.bucket_name
+                },
+                'INFO'
+            );
 
             res.status(201).json({
                 success: true,
@@ -940,6 +963,254 @@ const companyController = {
             res.status(500).json({
                 success: false,
                 error: 'An error occurred while deleting the company'
+            });
+        }
+    },
+
+    /**
+     * Upload company logo to Supabase Storage
+     */
+    async uploadCompanyLogo(req, res) {
+        try {
+            console.log('🔍 Upload company logo endpoint hit');
+            console.log('🔍 Request body:', req.body);
+            console.log('🔍 Request file:', req.file);
+            
+            const authUserId = req.user.userId || req.user.id;
+            const { companyId } = req.body;
+            
+            console.log('🔍 Auth user ID:', authUserId);
+            console.log('🔍 Company ID:', companyId);
+
+            if (!req.file) {
+                console.log('❌ No file provided');
+                return res.status(400).json({
+                    success: false,
+                    error: 'No logo file provided'
+                });
+            }
+            
+            console.log('✅ File validation passed');
+
+            // Find user by id (since authUserId is the actual user ID from JWT)
+            console.log('🔍 Looking up user by id:', authUserId);
+            const { data: userData, error: userError } = await supabase
+                .from('users')
+                .select('id')
+                .eq('id', authUserId)
+                .single();
+
+            console.log('🔍 User lookup result:', { userData, userError });
+
+            if (userError || !userData) {
+                console.log('❌ User not found');
+                return res.status(404).json({
+                    success: false,
+                    error: 'User not found'
+                });
+            }
+            
+            console.log('✅ User found:', userData.id);
+
+            // Verify company belongs to user
+            const { data: company, error: companyError } = await supabase
+                .from('companies')
+                .select('*')
+                .eq('id', companyId)
+                .eq('user_id', userData.id)
+                .single();
+
+            if (companyError || !company) {
+                return res.status(404).json({
+                    success: false,
+                    error: 'Company not found or access denied'
+                });
+            }
+
+            // Upload file to Supabase Storage
+            const fileExt = req.file.originalname.split('.').pop();
+            const fileName = `company-${companyId}-logo.${fileExt}`;
+            const filePath = `company-logos/${fileName}`;
+
+            console.log('🔍 Uploading to Supabase Storage:', filePath);
+            console.log('🔍 File size:', req.file.size);
+            console.log('🔍 File type:', req.file.mimetype);
+
+            const { data: uploadData, error: uploadError } = await supabase.storage
+                .from('company-assets')
+                .upload(filePath, req.file.buffer, {
+                    contentType: req.file.mimetype,
+                    upsert: true
+                });
+
+            console.log('🔍 Supabase upload result:', { uploadData, uploadError });
+
+            if (uploadError) {
+                console.error('❌ Supabase upload error:', uploadError);
+                return res.status(500).json({
+                    success: false,
+                    error: 'Failed to upload logo'
+                });
+            }
+
+            // Get public URL
+            const { data: urlData } = supabase.storage
+                .from('company-assets')
+                .getPublicUrl(filePath);
+
+            const logoUrl = urlData.publicUrl;
+
+            // Update company with logo URL
+            const { error: updateError } = await supabase
+                .from('companies')
+                .update({ logo_url: logoUrl })
+                .eq('id', companyId);
+
+            if (updateError) {
+                console.error('❌ Database update error:', updateError);
+                return res.status(500).json({
+                    success: false,
+                    error: 'Failed to update company logo'
+                });
+            }
+
+            console.log('✅ Company logo uploaded successfully');
+            console.log('🔍 Returning response with logoUrl:', logoUrl);
+
+            // Log logo upload
+            // Set company info in request for logging
+            req.companyId = companyId;
+            req.companyName = company.name;
+            
+            await logCompanyOperation(
+                req,
+                ACTIONS.UPLOAD_LOGO,
+                RESOURCES.COMPANY,
+                companyId,
+                `Company logo uploaded successfully for "${company.name}"`,
+                {
+                    companyId: companyId,
+                    companyName: company.name,
+                    logoUrl: logoUrl,
+                    fileName: fileName,
+                    fileSize: req.file.size,
+                    fileType: req.file.mimetype
+                },
+                'INFO'
+            );
+
+            return res.json({
+                success: true,
+                message: 'Logo uploaded successfully',
+                logoUrl: logoUrl
+            });
+
+        } catch (error) {
+            console.error('❌ Upload company logo error:', error);
+            res.status(500).json({
+                success: false,
+                error: 'An error occurred while uploading the logo'
+            });
+        }
+    },
+
+    /**
+     * Update company details
+     */
+    async updateCompany(req, res) {
+        try {
+            const authUserId = req.user.userId || req.user.id;
+            const companyId = req.params.id;
+            const { name, website } = req.body;
+
+            // Find user by auth_user_id
+            const { data: userData, error: userError } = await supabase
+                .from('users')
+                .select('id')
+                .eq('auth_user_id', authUserId)
+                .single();
+
+            if (userError || !userData) {
+                return res.status(404).json({
+                    success: false,
+                    error: 'User not found'
+                });
+            }
+
+            // Verify company belongs to user
+            const { data: company, error: companyError } = await supabase
+                .from('companies')
+                .select('*')
+                .eq('id', companyId)
+                .eq('user_id', userData.id)
+                .single();
+
+            if (companyError || !company) {
+                return res.status(404).json({
+                    success: false,
+                    error: 'Company not found or access denied'
+                });
+            }
+
+            // Update company
+            const { data: updatedCompany, error: updateError } = await supabase
+                .from('companies')
+                .update({
+                    name: name || company.name,
+                    website: website || company.website,
+                    updated_at: new Date().toISOString()
+                })
+                .eq('id', companyId)
+                .select()
+                .single();
+
+            if (updateError) {
+                console.error('❌ Database update error:', updateError);
+                return res.status(500).json({
+                    success: false,
+                    error: 'Failed to update company'
+                });
+            }
+
+            console.log('✅ Company updated successfully');
+
+            // Log company update
+            // Set company info in request for logging
+            req.companyId = companyId;
+            req.companyName = updatedCompany.name;
+            
+            await logCompanyOperation(
+                req,
+                ACTIONS.UPDATE_COMPANY,
+                RESOURCES.COMPANY,
+                companyId,
+                `Company "${updatedCompany.name}" updated successfully`,
+                {
+                    companyId: companyId,
+                    companyName: updatedCompany.name,
+                    updatedFields: {
+                        name: name || company.name,
+                        website: website || company.website
+                    },
+                    previousValues: {
+                        name: company.name,
+                        website: company.website
+                    }
+                },
+                'INFO'
+            );
+
+            return res.json({
+                success: true,
+                message: 'Company updated successfully',
+                data: updatedCompany
+            });
+
+        } catch (error) {
+            console.error('❌ Update company error:', error);
+            res.status(500).json({
+                success: false,
+                error: 'An error occurred while updating the company'
             });
         }
     }

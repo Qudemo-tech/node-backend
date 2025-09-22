@@ -18,10 +18,13 @@ const notificationRoutes = require('./routes/notificationRoutes');
 const helpRoutes = require('./routes/helpRoutes');
 const settingsRoutes = require('./routes/settingsRoutes');
 const qaRoutes = require('./routes/qaRoutes');
+const logRoutes = require('./routes/logRoutes');
 // PoToken routes removed - using direct VM access
 
 // Import middleware
 const { videoConcurrencyControl, qaConcurrencyControl, prioritizeRequests, queueStatus, requestTimeout, healthCheck } = require('./middleware/concurrency');
+const { requestLogger, errorLogger } = require('./middleware/logging');
+const { companyLogger } = require('./services/companyLogger');
 
 // Async queue removed - processing videos directly
 
@@ -92,6 +95,9 @@ app.use(limiter);
 app.use(express.json({ limit: '100mb' }));
 app.use(express.urlencoded({ extended: true, limit: '100mb' }));
 
+// Company logging middleware
+app.use(requestLogger);
+
 // Static files
 app.use('/uploads', express.static('uploads'));
 
@@ -124,6 +130,7 @@ app.use('/api/notifications', notificationRoutes);
 app.use('/api/help', helpRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/qa', qaRoutes);
+app.use('/api/logs', logRoutes);
 // PoToken routes removed - using direct VM access
 
 // 404 handler
@@ -134,6 +141,9 @@ app.use('*', (req, res) => {
         path: req.originalUrl
     });
 });
+
+// Company error logging middleware
+app.use(errorLogger);
 
 // Global error handler
 app.use((error, req, res, next) => {
@@ -178,7 +188,7 @@ process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
 // Start server
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
     console.log(`🚀 QuDemo Backend Server running on port ${PORT}`);
     console.log(`📊 Health check: http://localhost:${PORT}/health`);
     console.log(`📊 Queue management: http://localhost:${PORT}/api/queue/status`);
@@ -188,6 +198,9 @@ app.listen(PORT, () => {
     console.log(`   - Memory threshold: ${process.env.MEMORY_THRESHOLD_MB || 3000}MB`);
     console.log(`🎯 Environment: ${process.env.NODE_ENV || 'development'}`);
     console.log(`🌐 CORS Origins: ${allowedOrigins.join(', ')}`);
+    
+    // Setup company logging storage
+    await companyLogger.setupStorage();
 });
 
 module.exports = app; 

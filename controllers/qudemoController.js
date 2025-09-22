@@ -1,4 +1,6 @@
 const { createClient } = require('@supabase/supabase-js');
+const { logCompanyOperation } = require('../middleware/logging');
+const { ACTIONS, RESOURCES } = require('../services/companyLogger');
 
 // Create Supabase client
 const supabase = createClient(
@@ -634,6 +636,29 @@ const createQudemo = async (req, res) => {
       console.log('✅ Knowledge sources created successfully');
     }
 
+    // Log QuDemo creation
+    // Set company info in request for logging
+    req.companyId = companyId;
+    req.companyName = companyAccess.name;
+    
+    await logCompanyOperation(
+      req,
+      ACTIONS.CREATE_QUDEMO,
+      RESOURCES.QUDEMO,
+      qudemoId,
+      `QuDemo "${qudemoData.title}" created successfully`,
+      {
+        qudemoId: qudemoId,
+        qudemoTitle: qudemoData.title,
+        qudemoDescription: qudemoData.description,
+        companyId: companyId,
+        companyName: companyAccess.name,
+        videoCount: videos ? videos.length : 0,
+        knowledgeSourceCount: knowledgeSources ? knowledgeSources.length : 0
+      },
+      'INFO'
+    );
+
     res.json({
       success: true,
       data: { 
@@ -645,6 +670,32 @@ const createQudemo = async (req, res) => {
 
   } catch (error) {
     console.error('Error creating qudemo:', error);
+    
+    // Log QuDemo creation error (without companyAccess since it might not be available)
+    try {
+      // Set company info in request for logging
+      req.companyId = req.body.companyId;
+      req.companyName = 'Unknown';
+      
+      await logCompanyOperation(
+        req,
+        ACTIONS.CREATE_QUDEMO,
+        RESOURCES.QUDEMO,
+        null,
+        `Failed to create QuDemo: ${error.message}`,
+        {
+          error: error.message,
+          stack: error.stack,
+          companyId: req.body.companyId,
+          title: req.body.title,
+          companyName: 'Unknown'
+        },
+        'ERROR'
+      );
+    } catch (logError) {
+      console.error('Failed to log error:', logError);
+    }
+    
     res.status(500).json({
       success: false,
       error: 'Failed to create qudemo'
@@ -721,6 +772,15 @@ const updateQudemo = async (req, res) => {
         error: 'Access denied to this qudemo'
       });
     }
+
+    // Get company name for logging
+    const { data: companyData, error: companyError } = await supabase
+      .from('companies')
+      .select('name')
+      .eq('id', qudemo.company_id)
+      .single();
+    
+    const companyName = companyData?.name || 'Unknown Company';
 
     // Update qudemo basic info
     const updateData = {
@@ -803,6 +863,33 @@ const updateQudemo = async (req, res) => {
       }
     }
 
+    // Log QuDemo update
+    // Set company info in request for logging
+    req.companyId = qudemo.company_id;
+    req.companyName = companyName;
+    
+    await logCompanyOperation(
+      req,
+      ACTIONS.UPDATE_QUDEMO,
+      RESOURCES.QUDEMO,
+      id,
+      `QuDemo "${qudemo.title}" updated successfully`,
+      {
+        qudemoId: id,
+        qudemoTitle: qudemo.title,
+        qudemoDescription: qudemo.description,
+        companyId: qudemo.company_id,
+        companyName: companyName,
+        updatedFields: {
+          title: title || qudemo.title,
+          description: description !== undefined ? description : qudemo.description,
+          status: status || qudemo.status
+        },
+        updatedAt: new Date().toISOString()
+      },
+      'INFO'
+    );
+
     res.json({
       success: true,
       message: 'Qudemo updated successfully'
@@ -810,6 +897,30 @@ const updateQudemo = async (req, res) => {
 
   } catch (error) {
     console.error('Error updating qudemo:', error);
+    
+    // Log QuDemo update error
+    try {
+      // Set company info in request for logging (if available)
+      req.companyId = req.params.id; // Use qudemo ID as fallback
+      req.companyName = 'Unknown';
+      
+      await logCompanyOperation(
+        req,
+        ACTIONS.UPDATE_QUDEMO,
+        RESOURCES.QUDEMO,
+        req.params.id,
+        `Failed to update QuDemo: ${error.message}`,
+        {
+          error: error.message,
+          stack: error.stack,
+          qudemoId: req.params.id
+        },
+        'ERROR'
+      );
+    } catch (logError) {
+      console.error('Failed to log update error:', logError);
+    }
+    
     res.status(500).json({
       success: false,
       error: 'Failed to update qudemo'
@@ -970,6 +1081,28 @@ const deleteQudemo = async (req, res) => {
 
     console.log(`✅ Qudemo ${id} hard deleted and all associated data cleaned up successfully`);
 
+    // Log QuDemo deletion
+    // Set company info in request for logging
+    req.companyId = qudemo.company_id;
+    req.companyName = companyAccess.name;
+    
+    await logCompanyOperation(
+      req,
+      ACTIONS.DELETE_QUDEMO,
+      RESOURCES.QUDEMO,
+      id,
+      `QuDemo "${qudemo.title}" deleted successfully`,
+      {
+        qudemoId: id,
+        qudemoTitle: qudemo.title,
+        qudemoDescription: qudemo.description,
+        companyId: qudemo.company_id,
+        companyName: companyAccess.name,
+        deletedAt: new Date().toISOString()
+      },
+      'INFO'
+    );
+
     res.json({
       success: true,
       message: 'Qudemo deleted successfully'
@@ -977,6 +1110,30 @@ const deleteQudemo = async (req, res) => {
 
   } catch (error) {
     console.error('Error deleting qudemo:', error);
+    
+    // Log QuDemo deletion error
+    try {
+      // Set company info in request for logging (if available)
+      req.companyId = req.params.id; // Use qudemo ID as fallback
+      req.companyName = 'Unknown';
+      
+      await logCompanyOperation(
+        req,
+        ACTIONS.DELETE_QUDEMO,
+        RESOURCES.QUDEMO,
+        req.params.id,
+        `Failed to delete QuDemo: ${error.message}`,
+        {
+          error: error.message,
+          stack: error.stack,
+          qudemoId: req.params.id
+        },
+        'ERROR'
+      );
+    } catch (logError) {
+      console.error('Failed to log deletion error:', logError);
+    }
+    
     res.status(500).json({
       success: false,
       error: 'Failed to delete qudemo'
