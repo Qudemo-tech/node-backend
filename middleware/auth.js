@@ -209,6 +209,7 @@ const generateToken = (userId, role) => {
         { 
             userId, 
             role,
+            sub: userId, // Add sub claim for Supabase compatibility
             iat: Math.floor(Date.now() / 1000)
         },
         process.env.JWT_SECRET,

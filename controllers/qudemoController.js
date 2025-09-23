@@ -759,14 +759,15 @@ const updateQudemo = async (req, res) => {
       });
     }
 
-    // Validate company access
+    // Validate company access - check if user owns the company
     const { data: companyAccess, error: accessError } = await supabase
-      .from('user_companies')
+      .from('companies')
       .select('*')
       .eq('user_id', userId)
-      .eq('company_id', qudemo.company_id);
+      .eq('id', qudemo.company_id)
+      .single();
 
-    if (accessError || companyAccess.length === 0) {
+    if (accessError || !companyAccess) {
       return res.status(403).json({
         success: false,
         error: 'Access denied to this qudemo'
