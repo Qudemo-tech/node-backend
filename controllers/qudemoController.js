@@ -1671,6 +1671,8 @@ const generateShareLink = async (req, res) => {
     console.log(`🔗 Request URL: ${req.url}`);
     console.log(`🔗 Request headers:`, req.headers);
     console.log(`🔗 Request body:`, req.body);
+    console.log(`🔗 Request timestamp: ${new Date().toISOString()}`);
+    console.log(`🔗 Request ID: ${Math.random().toString(36).substr(2, 9)}`);
     
     const { id } = req.params;
     const userId = req.user?.userId || req.user?.id;
@@ -1709,47 +1711,105 @@ const generateShareLink = async (req, res) => {
       });
     }
 
-    // Generate share token (simple UUID for now, could be more sophisticated)
-    const shareToken = uuidv4();
+    // First, try to get existing share token
+    console.log(`🔗 Checking for existing share token for qudemo: ${id}`);
+    console.log(`🔗 Current timestamp: ${new Date().toISOString()}`);
     
-    console.log(`🔗 Generated share token: ${shareToken}`);
-    console.log(`🔗 Qudemo ID: ${id}`);
-    console.log(`🔗 Company ID: ${qudemo.company_id}`);
-    console.log(`🔗 User ID: ${userId}`);
-    
-    // Store share token in database
-    const shareData = {
-      id: uuidv4(),
-      qudemo_id: id,
-      share_token: shareToken,
-      company_id: qudemo.company_id,
-      created_by: userId,
-      created_at: new Date().toISOString(),
-      expires_at: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString() // 1 year from now
-    };
-    
-    console.log(`🔗 Inserting share data:`, shareData);
-    
-    const { data: shareResult, error: shareError } = await supabase
+    const { data: existingShare, error: existingShareError } = await supabase
       .from('qudemo_shares')
-      .insert(shareData)
-      .select();
+      .select('*')
+      .eq('qudemo_id', id)
+      .single();
 
-    if (shareError) {
-      console.error('❌ Error creating share token:', shareError);
-      console.error('❌ Share error details:', {
-        code: shareError.code,
-        message: shareError.message,
-        details: shareError.details,
-        hint: shareError.hint
-      });
-      return res.status(500).json({
-        success: false,
-        error: 'Failed to generate share link'
-      });
+    console.log(`🔗 Existing share query result:`, { 
+      existingShare, 
+      existingShareError,
+      errorCode: existingShareError?.code,
+      errorMessage: existingShareError?.message,
+      hasExistingShare: !!existingShare,
+      existingShareToken: existingShare?.share_token
+    });
+
+    let shareToken;
+    let shareResult;
+    let isNewLink = false;
+
+    if (existingShare && !existingShareError) {
+      // Use existing share token
+      shareToken = existingShare.share_token;
+      shareResult = [existingShare];
+      isNewLink = false;
+      console.log(`🔗 Found existing share token: ${shareToken}`);
+    } else {
+      // Generate new share token only if none exists
+      shareToken = uuidv4();
+      isNewLink = true;
+      
+      console.log(`🔗 Generated new share token: ${shareToken}`);
+      console.log(`🔗 Qudemo ID: ${id}`);
+      console.log(`🔗 Company ID: ${qudemo.company_id}`);
+      console.log(`🔗 User ID: ${userId}`);
+      
+      // Store share token in database
+      const shareData = {
+        id: uuidv4(),
+        qudemo_id: id,
+        share_token: shareToken,
+        company_id: qudemo.company_id,
+        created_by: userId,
+        created_at: new Date().toISOString(),
+        expires_at: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString() // 1 year from now
+      };
+      
+      console.log(`🔗 Inserting share data:`, shareData);
+      
+      const { data: newShareResult, error: shareError } = await supabase
+        .from('qudemo_shares')
+        .insert(shareData)
+        .select();
+      
+      if (shareError) {
+        console.error('❌ Error creating share token:', shareError);
+        console.error('❌ Share error details:', {
+          code: shareError.code,
+          message: shareError.message,
+          details: shareError.details,
+          hint: shareError.hint
+        });
+        
+        // If it's a unique constraint violation, try to get the existing share
+        if (shareError.code === '23505' || shareError.message.includes('duplicate key')) {
+          console.log('🔗 Unique constraint violation detected, fetching existing share...');
+          
+          const { data: existingShareRetry, error: retryError } = await supabase
+            .from('qudemo_shares')
+            .select('*')
+            .eq('qudemo_id', id)
+            .single();
+            
+          if (existingShareRetry && !retryError) {
+            shareToken = existingShareRetry.share_token;
+            shareResult = [existingShareRetry];
+            isNewLink = false;
+            console.log(`🔗 Retrieved existing share token after constraint violation: ${shareToken}`);
+          } else {
+            return res.status(500).json({
+              success: false,
+              error: 'Failed to generate share link'
+            });
+          }
+        } else {
+          return res.status(500).json({
+            success: false,
+            error: 'Failed to generate share link'
+          });
+        }
+      } else {
+        shareResult = newShareResult;
+      }
     }
     
-    console.log(`✅ Share token created successfully:`, shareResult);
+    console.log(`✅ Share token ${isNewLink ? 'created' : 'retrieved'} successfully:`, shareResult);
 
     // Generate share URL - handle both development and production
     let baseUrl;
@@ -1769,12 +1829,13 @@ const generateShareLink = async (req, res) => {
     }
     const shareUrl = `${baseUrl}/share/${shareToken}`;
 
-    console.log(`✅ Share link generated: ${shareUrl}`);
+    console.log(`✅ Share link ${isNewLink ? 'generated' : 'retrieved'}: ${shareUrl}`);
 
     res.json({
       success: true,
       shareUrl: shareUrl,
-      shareToken: shareToken
+      shareToken: shareToken,
+      isNewLink: isNewLink
     });
 
   } catch (error) {
