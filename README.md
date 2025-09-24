@@ -256,13 +256,13 @@ QUEUE_MAX_CONCURRENT_VIDEOS=1
 QUEUE_MAX_CONCURRENT_QA=5
 ```
 
-#### Production
+#### Production (4GB RAM)
 ```env
 NODE_ENV=production
 ENABLE_DEBUG_LOGS=false
-QUEUE_MAX_CONCURRENT_VIDEOS=2
-QUEUE_MAX_CONCURRENT_QA=10
-MEMORY_THRESHOLD_MB=1600
+QUEUE_MAX_CONCURRENT_VIDEOS=5
+QUEUE_MAX_CONCURRENT_QA=25
+MEMORY_THRESHOLD_MB=3000
 ```
 
 ## 🔧 Troubleshooting
@@ -305,13 +305,13 @@ curl http://localhost:5001/health
 
 ## 📈 Performance Metrics
 
-### Expected Performance (2GB RAM)
+### Expected Performance (4GB RAM)
 
-- **Concurrent Users**: 5-10 users
-- **Video Processing**: 2 concurrent videos
-- **Q&A Requests**: 20 concurrent requests
+- **Concurrent Users**: 50-80 users
+- **Video Processing**: 5 concurrent videos
+- **Q&A Requests**: 50 concurrent requests
 - **Response Time**: < 1 second for job queuing
-- **Memory Usage**: < 1600MB under normal load
+- **Memory Usage**: < 3000MB under normal load
 
 ### Scaling Considerations
 

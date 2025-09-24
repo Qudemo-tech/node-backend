@@ -30,7 +30,7 @@ services:
     autoDeploy: true
     scaling:
       minInstances: 1
-      maxInstances: 2
+      maxInstances: 3
 
   # Python Backend for Video Processing with Gemini
   - type: web

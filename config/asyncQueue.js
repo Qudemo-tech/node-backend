@@ -2,6 +2,7 @@ const { EventEmitter } = require('events');
 const { Worker } = require('worker_threads');
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
+const QueueOptimizer = require('./queueOptimizer');
 require('dotenv').config();
 
 // Configure axios to suppress verbose logging
@@ -121,6 +122,10 @@ class AsyncJobQueue extends EventEmitter {
         this.processingVideos = new Set();
         
         console.log(`🎬 AsyncJobQueue initialized - Videos: ${this.maxConcurrentVideos}, QA: ${this.maxConcurrentQA}`);
+        
+        // Initialize queue optimizer
+        this.optimizer = new QueueOptimizer();
+        this.optimizer.optimizeProcessing(this);
         
         this.startProcessing();
     }
