@@ -1,5 +1,6 @@
 const axios = require('axios');
 const { createClient } = require('@supabase/supabase-js');
+const authenticatedQAController = require('./authenticatedQAController');
 
 // Create Supabase client
 const supabase = createClient(
@@ -121,6 +122,34 @@ class QAController {
                     
                     // Log the interaction
                     await this.logQudemoInteraction(qudemoId, userId, question, response.data);
+
+                    // Store authenticated Q&A interaction in database
+                    try {
+                        await authenticatedQAController.storeAuthenticatedQA({
+                            userId: userId,
+                            companyId: qudemo.company_id,
+                            qudemoId: qudemoId,
+                            question: question,
+                            answer: response.data.answer,
+                            metadata: {
+                                confidence: response.data.confidence_score || response.data.confidence,
+                                search_score: response.data.search_score,
+                                video_url: response.data.video_url,
+                                start_timestamp: response.data.start,
+                                end_timestamp: response.data.end,
+                                formatted_timestamp: response.data.formatted_timestamp,
+                                answer_source: response.data.answer_source || response.data.primary_source,
+                                search_method: response.data.search_method,
+                                difficulty_level: response.data.difficulty_level,
+                                estimated_time: response.data.estimated_time,
+                                hybrid_scores: response.data.hybrid_scores
+                            }
+                        });
+                        console.log('✅ Authenticated Q&A interaction stored successfully');
+                    } catch (storageError) {
+                        console.error('❌ Failed to store authenticated Q&A interaction:', storageError);
+                        // Don't fail the request if storage fails
+                    }
 
                     // Enhanced mapping for hybrid Q&A response with better timestamp handling
                     const primarySource = response.data.primary_source || response.data.answer_source || 'unknown';

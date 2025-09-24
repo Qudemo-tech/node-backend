@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { authenticateToken } = require('../middleware/auth');
 const { createClient } = require('@supabase/supabase-js');
+const publicQAController = require('../controllers/publicQAController');
 
 // Initialize Supabase client
 const supabase = createClient(
@@ -276,7 +277,7 @@ router.post('/share/:shareToken/chat', async (req, res) => {
     // Get company details
     const { data: company, error: companyError } = await supabase
       .from('companies')
-      .select('name')
+      .select('id, name, display_name')
       .eq('id', share.company_id)
       .single();
 
@@ -356,6 +357,43 @@ router.post('/share/:shareToken/chat', async (req, res) => {
         };
         
         console.log(`🎬 Final public chat response:`, JSON.stringify(finalResponse, null, 2));
+        
+        // Store the public Q&A interaction in database
+        try {
+          const companyId = company.id || share.company_id;
+          console.log(`💾 Storing public Q&A - Company ID: ${companyId}, QuDemo ID: ${qudemo.id}`);
+          
+          if (!companyId) {
+            throw new Error('Company ID is required for storing public Q&A');
+          }
+          
+          await publicQAController.storePublicQA({
+            shareToken: shareToken,
+            question: question,
+            answer: finalResponse.answer,
+            qudemoId: qudemo.id,
+            companyId: companyId,
+            metadata: {
+              confidence: finalResponse.confidence,
+              search_score: finalResponse.search_score,
+              video_url: finalResponse.video_url,
+              start_timestamp: finalResponse.start,
+              end_timestamp: finalResponse.end,
+              formatted_timestamp: finalResponse.formatted_timestamp,
+              answer_source: finalResponse.answer_source,
+              search_method: finalResponse.search_method,
+              difficulty_level: finalResponse.difficulty_level,
+              estimated_time: finalResponse.estimated_time,
+              user_ip: req.ip || req.connection.remoteAddress,
+              user_agent: req.get('User-Agent')
+            }
+          });
+          console.log(`✅ Public Q&A interaction stored successfully`);
+        } catch (storageError) {
+          console.error(`⚠️ Failed to store public Q&A interaction:`, storageError);
+          // Don't fail the request if storage fails, just log the error
+        }
+        
         return res.json(finalResponse);
       } else {
         throw new Error(pythonResult.error || 'Failed to get answer');
@@ -377,6 +415,87 @@ router.post('/share/:shareToken/chat', async (req, res) => {
     res.status(500).json({
       success: false,
       error: 'Failed to process chat request'
+    });
+  }
+});
+
+// Get public Q&A interactions for a QuDemo (authenticated users only)
+router.get('/public-qa/:qudemoId', authenticateToken, async (req, res) => {
+  try {
+    const { qudemoId } = req.params;
+    const { limit = 50 } = req.query;
+
+    // Verify user has access to this QuDemo
+    const { data: qudemo, error: qudemoError } = await supabase
+      .from('qudemos')
+      .select('id, company_id, companies!inner(user_id)')
+      .eq('id', qudemoId)
+      .single();
+
+    if (qudemoError || !qudemo) {
+      return res.status(404).json({
+        success: false,
+        error: 'QuDemo not found'
+      });
+    }
+
+    // Check if user owns the company
+    if (qudemo.companies.user_id !== req.user.userId) {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied to this QuDemo'
+      });
+    }
+
+    const interactions = await publicQAController.getPublicQAInteractions(qudemoId, parseInt(limit));
+    
+    res.json({
+      success: true,
+      data: interactions,
+      count: interactions.length
+    });
+
+  } catch (error) {
+    console.error('❌ Error fetching public Q&A interactions:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch public Q&A interactions'
+    });
+  }
+});
+
+// Get public Q&A statistics for a company (authenticated users only)
+router.get('/public-qa-stats/:companyId', authenticateToken, async (req, res) => {
+  try {
+    const { companyId } = req.params;
+
+    // Verify user owns the company
+    const { data: company, error: companyError } = await supabase
+      .from('companies')
+      .select('id, user_id')
+      .eq('id', companyId)
+      .eq('user_id', req.user.userId)
+      .single();
+
+    if (companyError || !company) {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied to this company'
+      });
+    }
+
+    const stats = await publicQAController.getPublicQAStats(companyId);
+    
+    res.json({
+      success: true,
+      data: stats
+    });
+
+  } catch (error) {
+    console.error('❌ Error fetching public Q&A stats:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch public Q&A statistics'
     });
   }
 });
