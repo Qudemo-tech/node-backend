@@ -582,6 +582,29 @@ router.post('/process-content/:companyName/:qudemoId', authenticateToken, async 
           .update({ status: 'processed', is_active: true, updated_at: new Date().toISOString() })
           .eq('id', qudemoId);
         
+        // Generate suggested questions after successful processing
+        try {
+          console.log(`🤖 Generating suggested questions for QuDemo: ${qudemoId}`);
+          const pythonApiUrl = process.env.PYTHON_API_BASE_URL || 'http://localhost:5001';
+          const fetch = (await import('node-fetch')).default;
+          
+          const suggestedQuestionsResponse = await fetch(`${pythonApiUrl}/generate-suggested-questions/${companyName}/${qudemoId}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            timeout: 30000 // 30 seconds timeout
+          });
+          
+          if (suggestedQuestionsResponse.ok) {
+            const suggestedQuestionsResult = await suggestedQuestionsResponse.json();
+            console.log(`✅ Generated ${suggestedQuestionsResult.suggested_questions?.length || 0} suggested questions for QuDemo: ${qudemoId}`);
+          } else {
+            console.log(`⚠️ Failed to generate suggested questions for QuDemo: ${qudemoId}`);
+          }
+        } catch (suggestedQuestionsError) {
+          console.log(`⚠️ Error generating suggested questions for QuDemo ${qudemoId}:`, suggestedQuestionsError.message);
+          // Don't fail the entire process if suggested questions generation fails
+        }
+        
         // Update videos in qudemo_videos table
         if (video_urls && video_urls.length > 0) {
           console.log(`📹 Updating ${video_urls.length} videos in Supabase for qudemo ${qudemoId}...`);
@@ -1270,6 +1293,71 @@ router.post('/:id/processing-complete', async (req, res) => {
       success: false,
       error: 'Failed to handle processing completion notification',
       details: error.message
+    });
+  }
+});
+
+// Get suggested questions for a QuDemo
+router.get('/:id/suggested-questions', authenticateToken, async (req, res) => {
+  try {
+    const { id: qudemoId } = req.params;
+    const authUserId = req.user.userId || req.user.id;
+
+    console.log(`🤖 Fetching suggested questions for QuDemo: ${qudemoId}`);
+
+    // Get QuDemo details to find company name
+    const { data: qudemo, error: qudemoError } = await supabase
+      .from('qudemos_new')
+      .select('id, title, company_id, companies!inner(name)')
+      .eq('id', qudemoId)
+      .single();
+
+    if (qudemoError || !qudemo) {
+      return res.status(404).json({
+        success: false,
+        error: 'QuDemo not found'
+      });
+    }
+
+    const companyName = qudemo.companies.name;
+    console.log(`🏢 Company: ${companyName}, QuDemo: ${qudemoId}`);
+
+    // Call Python API to get suggested questions
+    const pythonApiUrl = process.env.PYTHON_API_BASE_URL || 'http://localhost:5001';
+    const fetch = (await import('node-fetch')).default;
+    
+    const suggestedQuestionsResponse = await fetch(`${pythonApiUrl}/suggested-questions/${companyName}/${qudemoId}`, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+      timeout: 10000 // 10 seconds timeout
+    });
+    
+    if (suggestedQuestionsResponse.ok) {
+      const suggestedQuestionsResult = await suggestedQuestionsResponse.json();
+      console.log(`✅ Retrieved ${suggestedQuestionsResult.suggested_questions?.length || 0} suggested questions for QuDemo: ${qudemoId}`);
+      
+      return res.json({
+        success: true,
+        suggested_questions: suggestedQuestionsResult.suggested_questions || [],
+        total_questions: suggestedQuestionsResult.total_questions || 0,
+        qudemo_id: qudemoId,
+        company_name: companyName
+      });
+    } else {
+      console.log(`⚠️ Failed to get suggested questions for QuDemo: ${qudemoId}`);
+      return res.json({
+        success: true,
+        suggested_questions: [],
+        total_questions: 0,
+        qudemo_id: qudemoId,
+        company_name: companyName
+      });
+    }
+  } catch (error) {
+    console.error('❌ Error fetching suggested questions:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to fetch suggested questions'
     });
   }
 });
