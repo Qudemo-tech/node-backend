@@ -1297,13 +1297,15 @@ router.post('/:id/processing-complete', async (req, res) => {
   }
 });
 
-// Get suggested questions for a QuDemo
-router.get('/:id/suggested-questions', authenticateToken, async (req, res) => {
+// Generate suggested questions for a QuDemo on-demand
+router.post('/:id/generate-suggested-questions', authenticateToken, async (req, res) => {
   try {
     const { id: qudemoId } = req.params;
     const authUserId = req.user.userId || req.user.id;
 
-    console.log(`🤖 Fetching suggested questions for QuDemo: ${qudemoId}`);
+    console.log(`🤖 GENERATING SUGGESTED QUESTIONS ON-DEMAND for QuDemo: ${qudemoId}`);
+    console.log(`🔍 User ID: ${authUserId}`);
+    console.log(`🔍 Request body:`, req.body);
 
     // Get QuDemo details to find company name
     const { data: qudemo, error: qudemoError } = await supabase
@@ -1322,44 +1324,60 @@ router.get('/:id/suggested-questions', authenticateToken, async (req, res) => {
     const companyName = qudemo.companies.name;
     console.log(`🏢 Company: ${companyName}, QuDemo: ${qudemoId}`);
 
-    // Call Python API to get suggested questions
+    // Call Python API to generate suggested questions
     const pythonApiUrl = process.env.PYTHON_API_BASE_URL || 'http://localhost:5001';
     const fetch = (await import('node-fetch')).default;
     
-    const suggestedQuestionsResponse = await fetch(`${pythonApiUrl}/suggested-questions/${companyName}/${qudemoId}`, {
-      method: 'GET',
+    const pythonUrl = `${pythonApiUrl}/generate-suggested-questions/${companyName}/${qudemoId}`;
+    console.log(`🐍 Calling Python API: ${pythonUrl}`);
+    
+    const suggestedQuestionsResponse = await fetch(pythonUrl, {
+      method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      timeout: 10000 // 10 seconds timeout
+      timeout: 30000 // 30 seconds timeout for generation
     });
+    
+    console.log(`🐍 Python API response status: ${suggestedQuestionsResponse.status}`);
+    console.log(`🐍 Python API response ok: ${suggestedQuestionsResponse.ok}`);
     
     if (suggestedQuestionsResponse.ok) {
       const suggestedQuestionsResult = await suggestedQuestionsResponse.json();
-      console.log(`✅ Retrieved ${suggestedQuestionsResult.suggested_questions?.length || 0} suggested questions for QuDemo: ${qudemoId}`);
+      console.log(`✅ Generated ${suggestedQuestionsResult.suggested_questions?.length || 0} suggested questions for QuDemo: ${qudemoId}`);
+      console.log(`📝 Questions from Python:`, suggestedQuestionsResult.suggested_questions);
+      console.log(`🔍 Full Python response:`, suggestedQuestionsResult);
       
-      return res.json({
+      const responseData = {
         success: true,
         suggested_questions: suggestedQuestionsResult.suggested_questions || [],
         total_questions: suggestedQuestionsResult.total_questions || 0,
         qudemo_id: qudemoId,
-        company_name: companyName
-      });
+        company_name: companyName,
+        generated_at: suggestedQuestionsResult.generated_at,
+        fresh_generation: suggestedQuestionsResult.fresh_generation
+      };
+      
+      console.log(`📤 Sending response to frontend:`, responseData);
+      return res.json(responseData);
     } else {
-      console.log(`⚠️ Failed to get suggested questions for QuDemo: ${qudemoId}`);
+      const errorText = await suggestedQuestionsResponse.text();
+      console.log(`⚠️ Failed to generate suggested questions for QuDemo: ${qudemoId}`);
+      console.log(`⚠️ Error response:`, errorText);
       return res.json({
-        success: true,
-        suggested_questions: [],
-        total_questions: 0,
+        success: false,
+        error: 'Failed to generate suggested questions',
         qudemo_id: qudemoId,
         company_name: companyName
       });
     }
   } catch (error) {
-    console.error('❌ Error fetching suggested questions:', error);
+    console.error('❌ Error generating suggested questions:', error);
     return res.status(500).json({
       success: false,
-      error: 'Failed to fetch suggested questions'
+      error: 'Failed to generate suggested questions'
     });
   }
 });
+
+// Note: Removed GET endpoint for suggested questions since we generate them fresh on-demand
 
 module.exports = router; 

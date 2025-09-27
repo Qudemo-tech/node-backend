@@ -154,6 +154,32 @@ const getQudemos = async (req, res) => {
         console.error(`❌ Error fetching knowledge for qudemo ${qudemo.id}:`, knowledgeError);
       }
 
+      // Get documents for this qudemo
+      const { data: documents, error: documentsError } = await supabase
+        .from('qudemo_documents')
+        .select('*')
+        .eq('qudemo_id', qudemo.id)
+        .eq('upload_status', 'completed')
+        .order('created_at', { ascending: false });
+
+      if (documentsError) {
+        console.error(`❌ Error fetching documents for qudemo ${qudemo.id}:`, documentsError);
+      }
+
+      // Debug: Log all documents for this qudemo (regardless of status)
+      const { data: allDocuments, error: allDocumentsError } = await supabase
+        .from('qudemo_documents')
+        .select('id, filename, upload_status')
+        .eq('qudemo_id', qudemo.id);
+
+      if (!allDocumentsError && allDocuments) {
+        console.log(`📄 QuDemo ${qudemo.id} (${qudemo.title}): Found ${allDocuments.length} total documents`);
+        allDocuments.forEach(doc => {
+          console.log(`   - ${doc.filename}: ${doc.upload_status}`);
+        });
+        console.log(`   - Completed documents: ${documents?.length || 0}`);
+      }
+
       // Also try to get knowledge sources from Python backend for this qudemo
       let pythonKnowledgeSources = [];
       try {
@@ -194,8 +220,10 @@ const getQudemos = async (req, res) => {
         ...qudemo,
         videos: videos || [],
         knowledge_sources: uniqueKnowledgeSources,
+        documents: documents || [],
         video_count: (videos || []).length,
         knowledge_count: uniqueKnowledgeSources.length,
+        document_count: (documents || []).length,
         views: 0,
         interactions: 0
       };
