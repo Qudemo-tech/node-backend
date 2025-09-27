@@ -1116,6 +1116,7 @@ router.post('/:id/processing-complete', async (req, res) => {
       websites, 
       videos_processed, 
       website_processed, 
+      documents_processed,
       processing_order,
       success,
       processing_errors,
@@ -1129,6 +1130,7 @@ router.post('/:id/processing-complete', async (req, res) => {
       total_chunks_stored,
       videos_processed,
       website_processed,
+      documents_processed,
       videos: videos?.length || 0,
       websites: websites?.length || 0,
       has_errors,
@@ -1276,6 +1278,38 @@ router.post('/:id/processing-complete', async (req, res) => {
       console.log(`ℹ️ No websites to process (websites: ${websites})`);
     }
     
+    // Handle document processing completion
+    if (documents_processed && documents_processed > 0) {
+      console.log(`📄 Processing document completion for qudemo ${qudemo_id}`);
+      console.log(`📊 Documents processed: ${documents_processed}`);
+      
+      // Update all documents for this QuDemo to completed status
+      console.log(`🔄 Attempting to update documents for qudemo ${qudemo_id}...`);
+      const { data: updateData, error: documentUpdateError } = await supabase
+        .from('qudemo_documents')
+        .update({ 
+          upload_status: 'completed',
+          updated_at: new Date().toISOString()
+        })
+        .eq('qudemo_id', qudemo_id)
+        .eq('upload_status', 'processing')
+        .select();
+      
+      if (documentUpdateError) {
+        console.error(`❌ Error updating document status:`, documentUpdateError);
+      } else {
+        console.log(`✅ Updated documents to completed status for qudemo ${qudemo_id}`);
+        console.log(`📊 Updated documents:`, updateData?.length || 0);
+        if (updateData && updateData.length > 0) {
+          updateData.forEach(doc => {
+            console.log(`   - ${doc.filename} (${doc.id}): ${doc.upload_status}`);
+          });
+        }
+      }
+    } else {
+      console.log(`ℹ️ No documents to process (documents_processed: ${documents_processed})`);
+    }
+    
     console.log(`✅ Processing completion notification handled successfully for qudemo ${qudemo_id}`);
     
     res.json({
@@ -1284,6 +1318,7 @@ router.post('/:id/processing-complete', async (req, res) => {
       qudemo_id: qudemo_id,
       videos_processed: videos_processed || 0,
       website_processed: website_processed || 0,
+      documents_processed: documents_processed || 0,
       total_chunks_stored: total_chunks_stored || 0
     });
     
@@ -1293,6 +1328,85 @@ router.post('/:id/processing-complete', async (req, res) => {
       success: false,
       error: 'Failed to handle processing completion notification',
       details: error.message
+    });
+  }
+});
+
+// Get stored suggested questions for a QuDemo
+router.get('/:id/suggested-questions', authenticateToken, async (req, res) => {
+  try {
+    const { id: qudemoId } = req.params;
+    const authUserId = req.user.userId || req.user.id;
+
+    console.log(`📖 FETCHING STORED SUGGESTED QUESTIONS for QuDemo: ${qudemoId}`);
+    console.log(`🔍 User ID: ${authUserId}`);
+
+    // Get QuDemo details to find company name
+    const { data: qudemo, error: qudemoError } = await supabase
+      .from('qudemos_new')
+      .select('id, title, company_id, companies!inner(name)')
+      .eq('id', qudemoId)
+      .single();
+
+    if (qudemoError || !qudemo) {
+      return res.status(404).json({
+        success: false,
+        error: 'QuDemo not found'
+      });
+    }
+
+    const companyName = qudemo.companies.name;
+    console.log(`🏢 Company: ${companyName}, QuDemo: ${qudemoId}`);
+
+    // Call Python API to fetch stored suggested questions
+    const pythonApiUrl = process.env.PYTHON_API_BASE_URL || 'http://localhost:5001';
+    const fetch = (await import('node-fetch')).default;
+    
+    const pythonUrl = `${pythonApiUrl}/suggested-questions/${companyName}/${qudemoId}`;
+    console.log(`🐍 Calling Python API: ${pythonUrl}`);
+
+    const suggestedQuestionsResponse = await fetch(pythonUrl, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+      timeout: 10000 // 10 seconds timeout for fetching
+    });
+    
+    console.log(`🐍 Python API response status: ${suggestedQuestionsResponse.status}`);
+    console.log(`🐍 Python API response ok: ${suggestedQuestionsResponse.ok}`);
+
+    if (suggestedQuestionsResponse.ok) {
+      const suggestedQuestionsResult = await suggestedQuestionsResponse.json();
+      console.log(`✅ Retrieved ${suggestedQuestionsResult.suggested_questions?.length || 0} stored suggested questions for QuDemo: ${qudemoId}`);
+      console.log(`📝 Questions from Python:`, suggestedQuestionsResult.suggested_questions);
+
+      const responseData = {
+        success: true,
+        suggested_questions: suggestedQuestionsResult.suggested_questions || [],
+        total_questions: suggestedQuestionsResult.total_questions || 0,
+        qudemo_id: qudemoId,
+        company_name: companyName,
+        retrieved_at: suggestedQuestionsResult.retrieved_at,
+        stored_questions: true
+      };
+
+      console.log(`📤 Sending response to frontend:`, responseData);
+      return res.json(responseData);
+    } else {
+      const errorText = await suggestedQuestionsResponse.text();
+      console.log(`⚠️ Failed to fetch suggested questions for QuDemo: ${qudemoId}`);
+      console.log(`⚠️ Error response:`, errorText);
+      return res.json({
+        success: false,
+        error: 'Failed to fetch suggested questions',
+        qudemo_id: qudemoId,
+        company_name: companyName
+      });
+    }
+  } catch (error) {
+    console.error('❌ Error fetching suggested questions:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to fetch suggested questions'
     });
   }
 });

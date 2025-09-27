@@ -44,8 +44,11 @@ class DocumentController {
   async uploadDocument(req, res) {
     try {
       const { qudemoId } = req.params;
-      const { companyName } = req.body;
+      const { companyName, company_name } = req.body;
       const file = req.file;
+      
+      // Handle both companyName and company_name for compatibility
+      const finalCompanyName = companyName || company_name;
 
       if (!file) {
         return res.status(400).json({
@@ -54,7 +57,7 @@ class DocumentController {
         });
       }
 
-      console.log(`📄 Uploading document: ${file.originalname} for QuDemo: ${qudemoId}`);
+      console.log(`📄 Uploading document: ${file.originalname} for QuDemo: ${qudemoId}, Company: ${finalCompanyName}`);
 
       // Verify QuDemo exists and user has access
       const { data: qudemo, error: qudemoError } = await supabase
@@ -125,7 +128,7 @@ class DocumentController {
         .eq('id', document.id);
 
       // Queue document processing
-      await this.queueDocumentProcessing(companyName, qudemoId, document.id, filePath, file.mimetype);
+      await this.queueDocumentProcessing(finalCompanyName, qudemoId, document.id, filePath, file.mimetype);
 
       console.log(`✅ Document uploaded successfully: ${file.originalname}`);
 

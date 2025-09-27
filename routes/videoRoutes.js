@@ -87,13 +87,11 @@ const buildIndexSchema = Joi.object({
 const companyNameSchema = Joi.object({
     companyName: Joi.string()
         .min(2)
-        .max(50)
-        .pattern(/^[a-zA-Z0-9_-]+$/)
+        .max(100)
         .required()
         .messages({
-            'string.pattern.base': 'Company name can only contain letters, numbers, hyphens, and underscores',
             'string.min': 'Company name must be at least 2 characters long',
-            'string.max': 'Company name must be less than 50 characters',
+            'string.max': 'Company name must be less than 100 characters',
             'any.required': 'Company name is required'
         })
 });

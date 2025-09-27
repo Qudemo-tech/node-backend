@@ -6,7 +6,7 @@ const { authenticateToken } = require('../middleware/auth');
 const documentController = new DocumentController();
 
 // Upload document to QuDemo
-router.post('/:qudemoId/upload', authenticateToken, upload.single('document'), async (req, res) => {
+router.post('/:qudemoId/upload', authenticateToken, upload.single('file'), async (req, res) => {
   try {
     await documentController.uploadDocument(req, res);
   } catch (error) {
