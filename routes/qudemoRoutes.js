@@ -504,10 +504,10 @@ router.get('/public-qa-stats/:companyId', authenticateToken, async (req, res) =>
 router.post('/process-content/:companyName/:qudemoId', authenticateToken, async (req, res) => {
   try {
     const { companyName, qudemoId } = req.params;
-    const { video_urls, website_url } = req.body;
+    const { video_urls, website_urls } = req.body;
     
     console.log(`🚀 Processing content for qudemo ${qudemoId} in company ${companyName}`);
-    console.log(`📹 Videos: ${video_urls?.length || 0}, 🌐 Website: ${website_url || 'None'}`);
+    console.log(`📹 Videos: ${video_urls?.length || 0}, 🌐 Websites: ${website_urls?.length || 0}`);
     
     // Call Python backend to process content
     const pythonApiUrl = process.env.PYTHON_API_BASE_URL || process.env.PYTHON_API_URL || 'http://localhost:5001';
@@ -519,7 +519,7 @@ router.post('/process-content/:companyName/:qudemoId', authenticateToken, async 
       },
       body: JSON.stringify({
         video_urls: video_urls || [],
-        website_url: website_url || null
+        website_urls: website_urls || []
       }),
       // Set a very long timeout for Python backend processing (30 minutes)
       signal: AbortSignal.timeout(30 * 60 * 1000)
@@ -532,8 +532,8 @@ router.post('/process-content/:companyName/:qudemoId', authenticateToken, async 
       
       // Verify that all content was processed successfully
       const expectedVideos = video_urls?.length || 0;
-      const expectedWebsite = website_url ? 1 : 0;
-      const totalExpected = expectedVideos + expectedWebsite;
+      const expectedWebsites = website_urls?.length || 0;
+      const totalExpected = expectedVideos + expectedWebsites;
       
       // Check if all expected content was processed
       let processedCount = 0;
