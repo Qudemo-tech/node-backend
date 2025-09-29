@@ -824,18 +824,89 @@ router.post('/process-content/:companyName/:qudemoId', authenticateToken, async 
     } else {
       console.error(`❌ Python backend processing failed:`, result);
       
-      // Log the processing failure but don't delete the qudemo
-      console.log(`⚠️ Content processing failed, but qudemo will be preserved`);
-      
-      return res.status(400).json({
-        success: false,
-        error: 'Content processing failed',
-        details: result.error || 'Unknown processing error. Qudemo has been preserved.',
-        qudemo_deleted: false
-      });
+      // Check if no content was processed - if so, delete the QuDemo
+      if (result.message && result.message.includes("No content could be processed")) {
+        console.log(`🗑️ No content was processed - deleting QuDemo ${qudemoId}`);
+        
+        try {
+          const { createClient } = require('@supabase/supabase-js');
+          const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY);
+          
+          // Delete the QuDemo from Supabase
+          const { error: deleteError } = await supabase
+            .from('qudemos_new')
+            .delete()
+            .eq('id', qudemoId);
+          
+          if (deleteError) {
+            console.error(`❌ Error deleting QuDemo ${qudemoId}:`, deleteError);
+          } else {
+            console.log(`✅ Successfully deleted QuDemo ${qudemoId} due to no content processed`);
+          }
+        } catch (deleteError) {
+          console.error(`❌ Error deleting QuDemo ${qudemoId}:`, deleteError);
+        }
+        
+        return res.status(400).json({
+          success: false,
+          error: 'Content processing failed',
+          details: result.message || 'No content could be processed. QuDemo has been deleted.',
+          qudemo_deleted: true,
+          processing_errors: result.processing_errors || []
+        });
+      } else {
+        // Log the processing failure but don't delete the qudemo for other errors
+        console.log(`⚠️ Content processing failed, but qudemo will be preserved`);
+        
+        return res.status(400).json({
+          success: false,
+          error: 'Content processing failed',
+          details: result.error || 'Unknown processing error. Qudemo has been preserved.',
+          qudemo_deleted: false
+        });
+      }
     }
   } catch (error) {
     console.error('❌ Error processing qudemo content:', error);
+    
+    // Check if this is an HTTPException from Python backend (no content processed)
+    if (error.response && error.response.status === 400) {
+      try {
+        const errorData = await error.response.json();
+        if (errorData.detail && errorData.detail.message && errorData.detail.message.includes("No content could be processed")) {
+          console.log(`🗑️ No content was processed - deleting QuDemo ${qudemoId}`);
+          
+          try {
+            const { createClient } = require('@supabase/supabase-js');
+            const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY);
+            
+            // Delete the QuDemo from Supabase
+            const { error: deleteError } = await supabase
+              .from('qudemos_new')
+              .delete()
+              .eq('id', qudemoId);
+            
+            if (deleteError) {
+              console.error(`❌ Error deleting QuDemo ${qudemoId}:`, deleteError);
+            } else {
+              console.log(`✅ Successfully deleted QuDemo ${qudemoId} due to no content processed`);
+            }
+          } catch (deleteError) {
+            console.error(`❌ Error deleting QuDemo ${qudemoId}:`, deleteError);
+          }
+          
+          return res.status(400).json({
+            success: false,
+            error: 'Content processing failed',
+            details: errorData.detail.message || 'No content could be processed. QuDemo has been deleted.',
+            qudemo_deleted: true,
+            processing_errors: errorData.detail.processing_errors || []
+          });
+        }
+      } catch (parseError) {
+        console.error('❌ Error parsing error response:', parseError);
+      }
+    }
     
     // If it's a timeout or abort error, try to manually update database tables
     if (error.name === 'AbortError' || error.type === 'aborted') {
