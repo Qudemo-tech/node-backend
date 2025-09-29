@@ -180,41 +180,9 @@ const getQudemos = async (req, res) => {
         console.log(`   - Completed documents: ${documents?.length || 0}`);
       }
 
-      // Also try to get knowledge sources from Python backend for this qudemo
-      let pythonKnowledgeSources = [];
-      try {
-        // Get company name from the company data
-        const companyName = companyAccess.name || 'mycomptest';
-        
-        console.log(`🔍 Fetching knowledge sources for qudemo ${qudemo.id} using company name: "${companyName}"`);
-        console.log(`🔍 Company data from Supabase:`, { id: companyAccess.id, name: companyAccess.name });
-        
-        const pythonApiUrl = process.env.PYTHON_API_BASE_URL || process.env.PYTHON_API_URL || 'http://localhost:5001';
-        const fetch = (await import('node-fetch')).default;
-        const pythonResponse = await fetch(`${pythonApiUrl}/knowledge/sources/${companyName}/${qudemo.id}`);
-        
-        if (pythonResponse.ok) {
-          const pythonResult = await pythonResponse.json();
-          if (pythonResult.success && pythonResult.data && pythonResult.data.sources) {
-            pythonKnowledgeSources = pythonResult.data.sources;
-            console.log(`✅ Fetched ${pythonKnowledgeSources.length} knowledge sources from Python backend for qudemo ${qudemo.id}`);
-          } else {
-            console.log(`⚠️ Python response for qudemo ${qudemo.id}:`, pythonResult);
-          }
-        } else {
-          console.log(`❌ Python API error for qudemo ${qudemo.id}: ${pythonResponse.status} ${pythonResponse.statusText}`);
-        }
-      } catch (pythonError) {
-        console.log(`⚠️ Could not fetch from Python backend for qudemo ${qudemo.id}:`, pythonError.message);
-      }
-
-      // Combine knowledge sources from both sources, prioritizing Supabase data
-      const allKnowledgeSources = [...(knowledge || []), ...pythonKnowledgeSources];
-      
-      // Remove duplicates based on URL
-      const uniqueKnowledgeSources = allKnowledgeSources.filter((source, index, self) => 
-        index === self.findIndex(s => s.url === source.url)
-      );
+      // Only use Supabase knowledge sources for the list view (fast loading)
+      // Python backend data will be fetched separately when previewing a specific QuDemo
+      const uniqueKnowledgeSources = knowledge || [];
 
       return {
         ...qudemo,
@@ -1998,6 +1966,111 @@ const getSharedQudemo = async (req, res) => {
   }
 };
 
+// Get Python backend data for a specific QuDemo (for preview)
+const getQudemoPythonData = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const authUserId = req.user.userId || req.user.id;
+
+    // Get user and company access (similar to getQudemo)
+    let { data: userData, error: userError } = await supabase
+      .from('users')
+      .select('id')
+      .eq('id', authUserId)
+      .single();
+    
+    if (userError && userError.code === 'PGRST116') {
+      const result = await supabase
+        .from('users')
+        .select('id')
+        .eq('auth_user_id', authUserId)
+        .single();
+      userData = result.data;
+      userError = result.error;
+    }
+    
+    if (userError) {
+      return res.status(500).json({
+        success: false,
+        error: 'User not found in database'
+      });
+    }
+
+    const userId = userData.id;
+
+    // Get QuDemo with company validation
+    const { data: qudemo, error: qudemoError } = await supabase
+      .from('qudemos_new')
+      .select(`
+        *,
+        companies!inner(
+          id,
+          name,
+          user_id
+        )
+      `)
+      .eq('id', id)
+      .eq('companies.user_id', userId)
+      .eq('is_active', true)
+      .single();
+
+    if (qudemoError) {
+      return res.status(404).json({
+        success: false,
+        error: 'QuDemo not found or access denied'
+      });
+    }
+
+    const companyName = qudemo.companies.name;
+
+    // Fetch Python backend data
+    let pythonData = {
+      knowledge_sources: [],
+      website_count: 0,
+      error: null
+    };
+
+    try {
+      const pythonApiUrl = process.env.PYTHON_API_BASE_URL || process.env.PYTHON_API_URL || 'http://localhost:5001';
+      const fetch = (await import('node-fetch')).default;
+      
+      // Fetch knowledge sources
+      const knowledgeResponse = await fetch(`${pythonApiUrl}/knowledge/sources/${companyName}/${id}`);
+      if (knowledgeResponse.ok) {
+        const knowledgeResult = await knowledgeResponse.json();
+        if (knowledgeResult.success && knowledgeResult.data && knowledgeResult.data.sources) {
+          pythonData.knowledge_sources = knowledgeResult.data.sources;
+        }
+      }
+
+      // Fetch website count
+      const websiteResponse = await fetch(`${pythonApiUrl}/knowledge/website-count/${companyName}/${id}`);
+      if (websiteResponse.ok) {
+        const websiteResult = await websiteResponse.json();
+        if (websiteResult.success && websiteResult.data && websiteResult.data.count !== undefined) {
+          pythonData.website_count = websiteResult.data.count;
+        }
+      }
+
+    } catch (pythonError) {
+      console.log(`⚠️ Could not fetch Python data for qudemo ${id}:`, pythonError.message);
+      pythonData.error = pythonError.message;
+    }
+
+    res.json({
+      success: true,
+      data: pythonData
+    });
+
+  } catch (error) {
+    console.error('❌ Error in getQudemoPythonData:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch Python data'
+    });
+  }
+};
+
 module.exports = {
   getQudemos,
   getQudemo,
@@ -2012,5 +2085,6 @@ module.exports = {
   chat,
   getQudemoDataForPython,
   generateShareLink,
-  getSharedQudemo
+  getSharedQudemo,
+  getQudemoPythonData
 };

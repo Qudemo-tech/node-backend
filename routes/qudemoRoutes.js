@@ -22,7 +22,8 @@ const {
   chat,
   getQudemoDataForPython,
   generateShareLink,
-  getSharedQudemo
+  getSharedQudemo,
+  getQudemoPythonData
 } = require('../controllers/qudemoController');
 
 // Test endpoint without authentication (for debugging)
@@ -160,6 +161,9 @@ router.get('/:id', authenticateToken, getQudemo);
 // Get qudemo data for Python backend (internal use)
 router.get('/data/:qudemoId', authenticateToken, getQudemoDataForPython);
 
+// Get Python backend data for a specific QuDemo (for preview)
+router.get('/:id/python-data', authenticateToken, getQudemoPythonData);
+
 // Get qudemo data for Python backend (unauthenticated - internal use only)
 router.get('/python-data/:qudemoId', async (req, res) => {
   try {
@@ -225,6 +229,93 @@ router.post('/:id/share', (req, res, next) => {
 
 // Get shared qudemo (public access - no authentication required)
 router.get('/share/:shareToken', getSharedQudemo);
+
+// Get suggested questions for shared qudemo (public access - no authentication required)
+router.get('/share/:shareToken/suggested-questions', async (req, res) => {
+  try {
+    const { shareToken } = req.params;
+    
+    console.log(`❓ Public suggested questions request for share token: ${shareToken}`);
+    
+    // Get the shared qudemo first to validate the token and get the qudemo ID
+    const { data: sharedQudemo, error: sharedError } = await supabase
+      .from('qudemo_shares')
+      .select(`
+        *,
+        qudemos_new!inner(
+          id,
+          title,
+          company_id,
+          companies!inner(
+            name
+          )
+        )
+      `)
+      .eq('share_token', shareToken)
+      .eq('is_active', true)
+      .single();
+
+    if (sharedError || !sharedQudemo) {
+      console.log(`❌ Invalid or inactive share token: ${shareToken}`);
+      return res.status(404).json({
+        success: false,
+        error: 'Shared QuDemo not found or access denied'
+      });
+    }
+
+    const qudemoId = sharedQudemo.qudemos_new.id;
+    const companyName = sharedQudemo.qudemos_new.companies.name;
+    
+    console.log(`✅ Valid share token, fetching suggested questions for qudemo: ${qudemoId}, company: ${companyName}`);
+
+    // Get suggested questions from Python backend
+    const pythonApiUrl = process.env.PYTHON_API_BASE_URL || process.env.PYTHON_API_URL || 'http://localhost:5001';
+    const fetch = (await import('node-fetch')).default;
+    
+    try {
+      const pythonUrl = `${pythonApiUrl}/suggested-questions/${companyName}/${qudemoId}`;
+      console.log(`🐍 Fetching suggested questions from Python: ${pythonUrl}`);
+      
+      const pythonResponse = await fetch(pythonUrl, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (pythonResponse.ok) {
+        const pythonResult = await pythonResponse.json();
+        if (pythonResult.success && pythonResult.suggested_questions) {
+          console.log(`✅ Retrieved ${pythonResult.suggested_questions.length} suggested questions from Python backend`);
+          return res.json({
+            success: true,
+            suggested_questions: pythonResult.suggested_questions
+          });
+        } else {
+          console.log(`⚠️ Python response for suggested questions:`, pythonResult);
+        }
+      } else {
+        console.log(`❌ Python API error for suggested questions: ${pythonResponse.status} ${pythonResponse.statusText}`);
+      }
+    } catch (pythonError) {
+      console.log(`⚠️ Could not fetch suggested questions from Python backend:`, pythonError.message);
+    }
+
+    // Fallback: return empty array if Python backend fails
+    console.log(`📝 Returning empty suggested questions array as fallback`);
+    return res.json({
+      success: true,
+      suggested_questions: []
+    });
+
+  } catch (error) {
+    console.error('❌ Error in public suggested questions endpoint:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to fetch suggested questions'
+    });
+  }
+});
 
 // Chat with shared qudemo (public access - no authentication required)
 router.post('/share/:shareToken/chat', async (req, res) => {
