@@ -426,10 +426,12 @@ router.post('/share/:shareToken/chat', async (req, res) => {
       const pythonResult = await pythonResponse.json();
       console.log(`✅ Python backend response:`, pythonResult);
       
-      if (pythonResult && pythonResult.success) {
+      if (pythonResult) {
+        // Handle both success and failure cases from Python backend
+        const isSuccess = pythonResult.success === true;
         // Return the response in the exact same format as the private Q&A
         const finalResponse = {
-          success: true,
+          success: isSuccess,
           answer: pythonResult.answer,
           sources: pythonResult.sources || [],
           video_url: pythonResult.video_url,
@@ -449,8 +451,9 @@ router.post('/share/:shareToken/chat', async (req, res) => {
         
         console.log(`🎬 Final public chat response:`, JSON.stringify(finalResponse, null, 2));
         
-        // Store the public Q&A interaction in database
-        try {
+        // Store the public Q&A interaction in database (only for successful responses)
+        if (isSuccess) {
+          try {
           const companyId = company.id || share.company_id;
           console.log(`💾 Storing public Q&A - Company ID: ${companyId}, QuDemo ID: ${qudemo.id}`);
           
@@ -479,15 +482,16 @@ router.post('/share/:shareToken/chat', async (req, res) => {
               user_agent: req.get('User-Agent')
             }
           });
-          console.log(`✅ Public Q&A interaction stored successfully`);
-        } catch (storageError) {
-          console.error(`⚠️ Failed to store public Q&A interaction:`, storageError);
-          // Don't fail the request if storage fails, just log the error
+            console.log(`✅ Public Q&A interaction stored successfully`);
+          } catch (storageError) {
+            console.error(`⚠️ Failed to store public Q&A interaction:`, storageError);
+            // Don't fail the request if storage fails, just log the error
+          }
         }
         
         return res.json(finalResponse);
       } else {
-        throw new Error(pythonResult.error || 'Failed to get answer');
+        throw new Error('No response data received from Python backend');
       }
       
     } catch (pythonError) {

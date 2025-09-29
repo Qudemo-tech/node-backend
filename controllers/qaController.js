@@ -116,39 +116,43 @@ class QAController {
                     console.log(`✅ Standard Q&A fallback response received`);
                 }
 
-                if (response.data && response.data.success) {
+                if (response.data) {
+                    // Handle both success and failure cases from Python backend
+                    const isSuccess = response.data.success === true;
                     console.log(`✅ Qudemo question answered successfully`);
                     console.log(`🔍 Python response data:`, JSON.stringify(response.data, null, 2));
                     
                     // Log the interaction
                     await this.logQudemoInteraction(qudemoId, userId, question, response.data);
 
-                    // Store authenticated Q&A interaction in database
-                    try {
-                        await authenticatedQAController.storeAuthenticatedQA({
-                            userId: userId,
-                            companyId: qudemo.company_id,
-                            qudemoId: qudemoId,
-                            question: question,
-                            answer: response.data.answer,
-                            metadata: {
-                                confidence: response.data.confidence_score || response.data.confidence,
-                                search_score: response.data.search_score,
-                                video_url: response.data.video_url,
-                                start_timestamp: response.data.start,
-                                end_timestamp: response.data.end,
-                                formatted_timestamp: response.data.formatted_timestamp,
-                                answer_source: response.data.answer_source || response.data.primary_source,
-                                search_method: response.data.search_method,
-                                difficulty_level: response.data.difficulty_level,
-                                estimated_time: response.data.estimated_time,
-                                hybrid_scores: response.data.hybrid_scores
-                            }
-                        });
-                        console.log('✅ Authenticated Q&A interaction stored successfully');
-                    } catch (storageError) {
-                        console.error('❌ Failed to store authenticated Q&A interaction:', storageError);
-                        // Don't fail the request if storage fails
+                    // Store authenticated Q&A interaction in database (only for successful responses)
+                    if (isSuccess) {
+                        try {
+                            await authenticatedQAController.storeAuthenticatedQA({
+                                userId: userId,
+                                companyId: qudemo.company_id,
+                                qudemoId: qudemoId,
+                                question: question,
+                                answer: response.data.answer,
+                                metadata: {
+                                    confidence: response.data.confidence_score || response.data.confidence,
+                                    search_score: response.data.search_score,
+                                    video_url: response.data.video_url,
+                                    start_timestamp: response.data.start,
+                                    end_timestamp: response.data.end,
+                                    formatted_timestamp: response.data.formatted_timestamp,
+                                    answer_source: response.data.answer_source || response.data.primary_source,
+                                    search_method: response.data.search_method,
+                                    difficulty_level: response.data.difficulty_level,
+                                    estimated_time: response.data.estimated_time,
+                                    hybrid_scores: response.data.hybrid_scores
+                                }
+                            });
+                            console.log('✅ Authenticated Q&A interaction stored successfully');
+                        } catch (storageError) {
+                            console.error('❌ Failed to store authenticated Q&A interaction:', storageError);
+                            // Don't fail the request if storage fails
+                        }
                     }
 
                     // Enhanced mapping for hybrid Q&A response with better timestamp handling
@@ -184,7 +188,7 @@ class QAController {
                     }
 
                     const finalResponse = {
-                        success: true,
+                        success: isSuccess,
                         answer: response.data.answer,
                         sources: sources,
                         video_url: videoUrl,
@@ -207,7 +211,7 @@ class QAController {
                     
                     return res.json(finalResponse);
                 } else {
-                    throw new Error(response.data.error || 'Failed to get answer');
+                    throw new Error('No response data received from Python backend');
                 }
 
             } catch (pythonError) {
