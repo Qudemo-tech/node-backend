@@ -54,7 +54,8 @@ const allowedOrigins = [
     'https://qu-demo.vercel.app',
     'https://qudemo.com',
     'https://qudemo-frontend.vercel.app',
-    'https://qudemo.vercel.app'
+    'https://qudemo.vercel.app',
+    'https://testqudemo.netlify.app'
 ];
 
 const corsOptions = {
