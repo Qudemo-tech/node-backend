@@ -1708,6 +1708,25 @@ const generateShareLink = async (req, res) => {
       });
     }
 
+    // CHECK SUBSCRIPTION - Only Pro/Enterprise can share
+    const subscriptionPlan = companyAccess.subscription_plan || 'free';
+    const subscriptionStatus = companyAccess.subscription_status || 'active';
+    const isPro = ['pro', 'enterprise'].includes(subscriptionPlan);
+    const isActive = ['active', 'trialing'].includes(subscriptionStatus);
+
+    console.log(`🔗 Subscription check - Plan: ${subscriptionPlan}, Status: ${subscriptionStatus}`);
+
+    if (!isPro || !isActive) {
+      console.log(`❌ Subscription required - Current plan: ${subscriptionPlan}, Status: ${subscriptionStatus}`);
+      return res.status(403).json({
+        success: false,
+        error: 'Pro or Enterprise plan required to share QuDemos',
+        requiresUpgrade: true,
+        currentPlan: subscriptionPlan,
+        subscriptionStatus: subscriptionStatus
+      });
+    }
+
     // First, try to get existing share token
     console.log(`🔗 Checking for existing share token for qudemo: ${id}`);
     console.log(`🔗 Current timestamp: ${new Date().toISOString()}`);
@@ -1826,6 +1845,16 @@ const generateShareLink = async (req, res) => {
     }
     const shareUrl = `${baseUrl}/share/${shareToken}`;
 
+    // Update qudemo with share info
+    await supabase
+      .from('qudemos_new')
+      .update({
+        is_shared: true,
+        share_link: shareUrl,
+        share_created_at: new Date().toISOString()
+      })
+      .eq('id', id);
+
     console.log(`✅ Share link ${isNewLink ? 'generated' : 'retrieved'}: ${shareUrl}`);
 
     res.json({
@@ -1885,11 +1914,29 @@ const getSharedQudemo = async (req, res) => {
     // Get company details separately
     const { data: company, error: companyError } = await supabase
       .from('companies')
-      .select('name')
+      .select('name, subscription_plan, subscription_status')
       .eq('id', share.company_id)
       .single();
 
     console.log(`🔍 Company query result:`, { company, companyError });
+
+    // CHECK SUBSCRIPTION STATUS - Owner must have active Pro/Enterprise
+    const subscriptionPlan = company?.subscription_plan || 'free';
+    const subscriptionStatus = company?.subscription_status || 'active';
+    const isPro = ['pro', 'enterprise'].includes(subscriptionPlan);
+    const isActive = ['active', 'trialing'].includes(subscriptionStatus);
+
+    console.log(`🔍 Subscription check for shared QuDemo - Plan: ${subscriptionPlan}, Status: ${subscriptionStatus}`);
+
+    if (!isPro || !isActive) {
+      console.log(`❌ Owner's subscription expired or downgraded - Plan: ${subscriptionPlan}, Status: ${subscriptionStatus}`);
+      return res.status(403).json({
+        success: false,
+        error: 'This QuDemo is no longer available',
+        message: 'The owner\'s subscription has ended or been downgraded',
+        subscriptionExpired: true
+      });
+    }
 
     // Check if share is expired
     if (new Date(share.expires_at) < new Date()) {
