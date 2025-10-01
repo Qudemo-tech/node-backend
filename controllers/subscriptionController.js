@@ -19,6 +19,7 @@ const subscriptionController = {
 
       console.log('🛒 Creating checkout for plan:', plan, 'cycle:', billingCycle);
       console.log('🔍 Auth user ID:', authUserId);
+      console.log('🔍 Request body:', req.body);
 
       // Get user and company info (following the same pattern as companyController)
       let userId;
@@ -58,13 +59,17 @@ const subscriptionController = {
       }
 
       // Get user's company
+      console.log('🔍 Looking for company with user_id:', userId);
       const { data: companyData, error: companyError } = await supabase
         .from('companies')
         .select('id, name')
         .eq('user_id', userId)
         .single();
 
+      console.log('🔍 Company lookup result:', { companyData, companyError });
+
       if (companyError) {
+        console.log('❌ Company not found for user_id:', userId);
         return res.status(404).json({
           success: false,
           error: 'Company not found'
