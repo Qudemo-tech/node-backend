@@ -58,23 +58,34 @@ const subscriptionController = {
         }
       }
 
-      // Get user's company
+      // Get user's company (handle multiple companies)
       console.log('🔍 Looking for company with user_id:', userId);
-      const { data: companyData, error: companyError } = await supabase
+      const { data: companiesData, error: companiesError } = await supabase
         .from('companies')
         .select('id, name')
-        .eq('user_id', userId)
-        .single();
+        .eq('user_id', userId);
 
-      console.log('🔍 Company lookup result:', { companyData, companyError });
+      console.log('🔍 Companies lookup result:', { companiesData, companiesError });
 
-      if (companyError) {
-        console.log('❌ Company not found for user_id:', userId);
+      if (companiesError) {
+        console.log('❌ Error fetching companies for user_id:', userId);
+        return res.status(500).json({
+          success: false,
+          error: 'Error fetching company data'
+        });
+      }
+
+      if (!companiesData || companiesData.length === 0) {
+        console.log('❌ No companies found for user_id:', userId);
         return res.status(404).json({
           success: false,
           error: 'Company not found'
         });
       }
+
+      // Use the first company (or you could add logic to select the right one)
+      const companyData = companiesData[0];
+      console.log('✅ Using company:', companyData);
 
       // Get variant ID based on plan and billing cycle
       const variantKey = `LEMONSQUEEZY_${plan.toUpperCase()}_${billingCycle.toUpperCase()}_VARIANT`;
