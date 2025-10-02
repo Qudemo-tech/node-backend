@@ -1,30 +1,12 @@
 const express = require('express');
 const router = express.Router();
 const analyticsController = require('../controllers/analyticsController');
-const { validateQuery } = require('../middleware/validation');
-const { 
-  analyticsQuerySchema, 
-  performanceMetricsSchema, 
-  engagementAnalyticsSchema,
-  conversionFunnelSchema 
-} = require('../schemas/analyticsSchema');
+const { authenticateToken } = require('../middleware/auth');
 
-// Get overview analytics
-router.get('/overview', validateQuery(analyticsQuerySchema), analyticsController.getOverviewAnalytics);
+// Get analytics data for all QuDemos
+router.get('/qudemos', authenticateToken, analyticsController.getQudemoAnalytics);
 
-// Get conversion funnel
-router.get('/conversion-funnel', validateQuery(conversionFunnelSchema), analyticsController.getConversionFunnel);
+// Get detailed analytics for a specific QuDemo
+router.get('/qudemos/:qudemoId', authenticateToken, analyticsController.getQudemoDetailAnalytics);
 
-// Get recent activity
-router.get('/recent-activity', analyticsController.getRecentActivity);
-
-// Get weekly activity chart data
-router.get('/weekly-activity', validateQuery(analyticsQuerySchema), analyticsController.getWeeklyActivity);
-
-// Get demo performance metrics
-router.get('/demo-performance', validateQuery(performanceMetricsSchema), analyticsController.getDemoPerformance);
-
-// Get engagement analytics
-router.get('/engagement', validateQuery(engagementAnalyticsSchema), analyticsController.getEngagementAnalytics);
-
-module.exports = router; 
+module.exports = router;

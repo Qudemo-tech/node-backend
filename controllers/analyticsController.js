@@ -1,276 +1,306 @@
 const { createClient } = require('@supabase/supabase-js');
+const { authenticateToken } = require('../middleware/auth');
 
-// Create Supabase client
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-// Get overview analytics
-const getOverviewAnalytics = async (req, res) => {
-  try {
-    const { dateFrom, dateTo } = req.query;
-    
-    let query = supabase.from('interactions').select('*');
-    
-    if (dateFrom) {
-      query = query.gte('created_at', dateFrom);
-    }
-    if (dateTo) {
-      query = query.lte('created_at', dateTo);
-    }
+const analyticsController = {
+  // Get all QuDemos with their share links and Q&A data for analytics
+  getQudemoAnalytics: async (req, res) => {
+    try {
+      const userId = req.user?.userId || req.user?.id;
+      console.log(`📊 Analytics request from user: ${userId}`);
 
-    const { data: interactions, error } = await query;
+      // Get user's companies
+      const { data: companies, error: companiesError } = await supabase
+        .from('companies')
+        .select('id, name')
+        .eq('user_id', userId);
 
-    if (error) {
-      return res.status(400).json({ error: error.message });
-    }
-
-    // Calculate metrics
-    const totalViews = interactions.filter(i => i.action === 'view').length;
-    const totalQuestions = interactions.filter(i => i.action === 'question').length;
-    const totalMeetings = interactions.filter(i => i.action === 'meeting_booked').length;
-    const avgEngagement = interactions.length > 0 
-      ? interactions.reduce((sum, i) => sum + (i.engagement_score || 0), 0) / interactions.length 
-      : 0;
-
-    const overview = {
-      totalDemoViews: totalViews,
-      questionsAsked: totalQuestions,
-      meetingsBooked: totalMeetings,
-      avgEngagement: Math.round(avgEngagement * 100) / 100
-    };
-
-    res.json({ success: true, data: overview });
-  } catch (error) {
-    console.error('Error fetching overview analytics:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-};
-
-// Get conversion funnel
-const getConversionFunnel = async (req, res) => {
-  try {
-    const { qudemoId, dateFrom, dateTo } = req.query;
-    
-    let query = supabase.from('interactions').select('*');
-    
-    if (qudemoId) {
-      query = query.eq('qudemo_id', qudemoId);
-    }
-    if (dateFrom) {
-      query = query.gte('created_at', dateFrom);
-    }
-    if (dateTo) {
-      query = query.lte('created_at', dateTo);
-    }
-
-    const { data: interactions, error } = await query;
-
-    if (error) {
-      return res.status(400).json({ error: error.message });
-    }
-
-    const total = interactions.length;
-    const completed = interactions.filter(i => i.engagement_score >= 80).length;
-    const questions = interactions.filter(i => i.action === 'question').length;
-    const meetings = interactions.filter(i => i.action === 'meeting_booked').length;
-
-    const funnel = [
-      { label: 'Completed (>80%)', value: completed, total },
-      { label: 'Questions Asked', value: questions, total },
-      { label: 'Meeting Booked', value: meetings, total }
-    ];
-
-    res.json({ success: true, data: funnel });
-  } catch (error) {
-    console.error('Error fetching conversion funnel:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-};
-
-// Get recent activity
-const getRecentActivity = async (req, res) => {
-  try {
-    const { limit = 10 } = req.query;
-
-    const { data, error } = await supabase
-      .from('interactions')
-      .select(`
-        *,
-        qudemos(title)
-      `)
-      .order('created_at', { ascending: false })
-      .limit(parseInt(limit));
-
-    if (error) {
-      return res.status(400).json({ error: error.message });
-    }
-
-    const activity = data.map(interaction => ({
-      name: interaction.buyer_name,
-      time: getTimeAgo(interaction.created_at),
-      demo: interaction.qudemos?.title || 'Unknown Demo',
-      questions: interaction.questions_asked || 0,
-      action: interaction.action,
-      initial: interaction.buyer_name?.charAt(0) || 'U'
-    }));
-
-    res.json({ success: true, data: activity });
-  } catch (error) {
-    console.error('Error fetching recent activity:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-};
-
-// Get weekly activity chart data
-const getWeeklyActivity = async (req, res) => {
-  try {
-    const { dateFrom, dateTo } = req.query;
-    
-    let query = supabase.from('interactions').select('*');
-    
-    if (dateFrom) {
-      query = query.gte('created_at', dateFrom);
-    }
-    if (dateTo) {
-      query = query.lte('created_at', dateTo);
-    }
-
-    const { data: interactions, error } = await query;
-
-    if (error) {
-      return res.status(400).json({ error: error.message });
-    }
-
-    // Group by day and calculate metrics
-    const dailyStats = {};
-    
-    interactions.forEach(interaction => {
-      const date = new Date(interaction.created_at).toLocaleDateString();
-      if (!dailyStats[date]) {
-        dailyStats[date] = { Views: 0, Questions: 0, Meetings: 0 };
+      if (companiesError || !companies || companies.length === 0) {
+        return res.status(404).json({
+          success: false,
+          error: 'No companies found for user'
+        });
       }
-      
-      if (interaction.action === 'view') dailyStats[date].Views++;
-      if (interaction.action === 'question') dailyStats[date].Questions++;
-      if (interaction.action === 'meeting_booked') dailyStats[date].Meetings++;
-    });
 
-    // Convert to array format for chart
-    const weeklyData = Object.entries(dailyStats).map(([date, stats]) => ({
-      day: new Date(date).toLocaleDateString('en-US', { weekday: 'short' }),
-      ...stats
-    }));
+      const companyIds = companies.map(c => c.id);
+      console.log(`📊 Found ${companyIds.length} companies:`, companyIds);
 
-    res.json({ success: true, data: weeklyData });
-  } catch (error) {
-    console.error('Error fetching weekly activity:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-};
+      // Get all QuDemos for user's companies
+      const { data: qudemos, error: qudemosError } = await supabase
+        .from('qudemos_new')
+        .select(`
+          id,
+          title,
+          description,
+          created_at,
+          is_shared,
+          company_id,
+          companies!inner(name)
+        `)
+        .in('company_id', companyIds)
+        .eq('is_active', true)
+        .order('created_at', { ascending: false });
 
-// Get demo performance metrics
-const getDemoPerformance = async (req, res) => {
-  try {
-    const { data: qudemos, error: qudemosError } = await supabase
-      .from('qudemos')
-      .select('id, title');
+      if (qudemosError) {
+        console.error('❌ Error fetching QuDemos:', qudemosError);
+        return res.status(500).json({
+          success: false,
+          error: 'Failed to fetch QuDemos'
+        });
+      }
 
-    if (qudemosError) {
-      return res.status(400).json({ error: qudemosError.message });
-    }
+      console.log(`📊 Found ${qudemos.length} QuDemos`);
 
-    const performanceData = [];
+      // Get share links for each QuDemo
+      const qudemoIds = qudemos.map(q => q.id);
+      const { data: shareLinks, error: shareLinksError } = await supabase
+        .from('qudemo_shares')
+        .select(`
+          id,
+          share_token,
+          qudemo_id,
+          created_at,
+          expires_at
+        `)
+        .in('qudemo_id', qudemoIds)
+        .order('created_at', { ascending: false });
 
-    for (const qudemo of qudemos) {
-      const { data: interactions, error: interactionsError } = await supabase
-        .from('interactions')
-        .select('*')
-        .eq('qudemo_id', qudemo.id);
+      if (shareLinksError) {
+        console.error('❌ Error fetching share links:', shareLinksError);
+        return res.status(500).json({
+          success: false,
+          error: 'Failed to fetch share links'
+        });
+      }
 
-      if (interactionsError) continue;
+      console.log(`📊 Found ${shareLinks.length} share links`);
 
-      const views = interactions.filter(i => i.action === 'view').length;
-      const questions = interactions.filter(i => i.action === 'question').length;
-      const meetings = interactions.filter(i => i.action === 'meeting_booked').length;
-      const completionRate = views > 0 ? Math.round((interactions.filter(i => i.engagement_score >= 80).length / views) * 100) : 0;
-      const conversionRate = views > 0 ? Math.round((meetings / views) * 100) : 0;
+      // Get Q&A data from public_qa_interactions table
+      const { data: qaData, error: qaError } = await supabase
+        .from('public_qa_interactions')
+      .select(`
+          id,
+          qudemo_id,
+          share_token,
+          company_id,
+          question,
+          answer,
+          confidence_score,
+          search_score,
+          video_url,
+          start_timestamp,
+          end_timestamp,
+          formatted_timestamp,
+          answer_source,
+          search_method,
+          difficulty_level,
+          estimated_time,
+          user_ip,
+          user_agent,
+          is_irrelevant,
+          irrelevant_reason,
+          created_at,
+          updated_at
+        `)
+        .in('qudemo_id', qudemoIds)
+        .order('created_at', { ascending: false });
 
-      performanceData.push({
-        demo: qudemo.title,
-        views,
-        completion: `${completionRate}%`,
-        questions,
-        conversion: `${conversionRate}%`
+      if (qaError) {
+        console.error('❌ Error fetching Q&A data:', qaError);
+        return res.status(500).json({
+          success: false,
+          error: 'Failed to fetch Q&A data'
+        });
+      }
+
+      console.log(`📊 Found ${qaData.length} Q&A entries`);
+
+      // Organize data by QuDemo
+      const analyticsData = qudemos.map(qudemo => {
+        const shares = shareLinks.filter(share => share.qudemo_id === qudemo.id);
+        const qa = qaData.filter(qa => qa.qudemo_id === qudemo.id);
+
+        return {
+          qudemo: {
+            id: qudemo.id,
+            title: qudemo.title,
+            description: qudemo.description,
+            created_at: qudemo.created_at,
+            is_shared: qudemo.is_shared,
+            company_name: qudemo.companies.name
+          },
+          share_links: shares.map(share => ({
+            id: share.id,
+            share_token: share.share_token,
+            share_url: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/share/${share.share_token}`,
+            created_at: share.created_at,
+            expires_at: share.expires_at,
+            access_count: share.access_count || 0,
+            last_accessed_at: share.last_accessed_at || null
+          })),
+          qa_data: qa.map(qaItem => ({
+            id: qaItem.id,
+            question: qaItem.question,
+            answer: qaItem.answer,
+            created_at: qaItem.created_at,
+            share_token: qaItem.share_token,
+            confidence_score: qaItem.confidence_score,
+            search_score: qaItem.search_score,
+            video_url: qaItem.video_url,
+            start_timestamp: qaItem.start_timestamp,
+            end_timestamp: qaItem.end_timestamp,
+            formatted_timestamp: qaItem.formatted_timestamp,
+            answer_source: qaItem.answer_source,
+            search_method: qaItem.search_method,
+            difficulty_level: qaItem.difficulty_level,
+            estimated_time: qaItem.estimated_time,
+            user_ip: qaItem.user_ip,
+            user_agent: qaItem.user_agent,
+            is_irrelevant: qaItem.is_irrelevant || false,
+            irrelevant_reason: qaItem.irrelevant_reason || null
+          })),
+          total_shares: shares.length,
+          total_qa_entries: qa.length,
+          total_irrelevant_answers: qa.filter(qa => qa.is_irrelevant).length,
+          total_access_count: shares.reduce((sum, share) => sum + (share.access_count || 0), 0)
+        };
+      });
+
+      console.log(`📊 Returning analytics data for ${analyticsData.length} QuDemos`);
+
+      res.json({
+        success: true,
+        data: analyticsData,
+        summary: {
+          total_qudemos: qudemos.length,
+          total_share_links: shareLinks.length,
+          total_qa_entries: qaData.length,
+          total_irrelevant_answers: qaData.filter(qa => qa.is_irrelevant).length,
+          total_access_count: shareLinks.reduce((sum, share) => sum + (share.access_count || 0), 0)
+        }
+      });
+
+    } catch (error) {
+      console.error('❌ Error in getQudemoAnalytics:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Internal server error'
       });
     }
+  },
 
-    res.json({ success: true, data: performanceData });
-  } catch (error) {
-    console.error('Error fetching demo performance:', error);
-    res.status(500).json({ error: 'Internal server error' });
+  // Get detailed analytics for a specific QuDemo
+  getQudemoDetailAnalytics: async (req, res) => {
+    try {
+      const { qudemoId } = req.params;
+      const userId = req.user?.userId || req.user?.id;
+
+      console.log(`📊 Detailed analytics request for QuDemo: ${qudemoId}, user: ${userId}`);
+
+      // Verify user has access to this QuDemo
+      const { data: qudemo, error: qudemoError } = await supabase
+        .from('qudemo_new')
+        .select(`
+          id,
+          title,
+          description,
+          created_at,
+          is_shared,
+          company_id,
+          companies!inner(id, name, user_id)
+        `)
+        .eq('id', qudemoId)
+        .eq('is_active', true)
+        .single();
+
+      if (qudemoError || !qudemo || qudemo.companies.user_id !== userId) {
+        return res.status(404).json({
+          success: false,
+          error: 'QuDemo not found or access denied'
+        });
+      }
+
+      // Get all share links for this QuDemo
+      const { data: shareLinks, error: shareLinksError } = await supabase
+        .from('qudemo_shares')
+        .select('*')
+        .eq('qudemo_id', qudemoId)
+        .order('created_at', { ascending: false });
+
+      if (shareLinksError) {
+        return res.status(500).json({
+          success: false,
+          error: 'Failed to fetch share links'
+        });
+      }
+
+      // Get all Q&A data for this QuDemo from public_qa_interactions
+      const { data: qaData, error: qaError } = await supabase
+        .from('public_qa_interactions')
+        .select('*')
+        .eq('qudemo_id', qudemoId)
+        .order('created_at', { ascending: false });
+
+      if (qaError) {
+        console.error('❌ Error fetching Q&A data:', qaError);
+        return res.status(500).json({
+          success: false,
+          error: 'Failed to fetch Q&A data'
+        });
+      }
+
+      // Get access logs if available
+      const { data: accessLogs, error: accessLogsError } = await supabase
+        .from('qudemo_access_logs')
+        .select('*')
+        .eq('qudemo_id', qudemoId)
+        .order('created_at', { ascending: false })
+        .limit(100);
+
+      const detailedAnalytics = {
+        qudemo: {
+          id: qudemo.id,
+          title: qudemo.title,
+          description: qudemo.description,
+          created_at: qudemo.created_at,
+          is_shared: qudemo.is_shared,
+          company_name: qudemo.companies.name
+        },
+        share_links: shareLinks.map(share => ({
+          ...share,
+          share_url: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/share/${share.share_token}`
+        })),
+        qa_data: qaData,
+        access_logs: accessLogs || [],
+        statistics: {
+          total_share_links: shareLinks.length,
+          total_qa_entries: qaData.length,
+          total_access_count: shareLinks.reduce((sum, share) => sum + (share.access_count || 0), 0),
+          unique_questions: [...new Set(qaData.map(qa => qa.question))].length,
+          most_recent_qa: qaData.length > 0 ? qaData[0].created_at : null,
+          most_recent_access: shareLinks.length > 0 ? shareLinks.reduce((latest, share) => 
+            !latest || (share.last_accessed_at && share.last_accessed_at > latest) ? share.last_accessed_at : latest, null
+          ) : null
+        }
+      };
+
+      res.json({
+        success: true,
+        data: detailedAnalytics
+      });
+
+    } catch (error) {
+      console.error('❌ Error in getQudemoDetailAnalytics:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Internal server error'
+      });
+    }
   }
 };
 
-// Get engagement analytics
-const getEngagementAnalytics = async (req, res) => {
-  try {
-    const { qudemoId, buyerEmail, minEngagementScore, maxEngagementScore } = req.query;
-    
-    let query = supabase.from('interactions').select('*');
-    
-    if (qudemoId) {
-      query = query.eq('qudemo_id', qudemoId);
-    }
-    if (buyerEmail) {
-      query = query.eq('buyer_email', buyerEmail);
-    }
-    if (minEngagementScore) {
-      query = query.gte('engagement_score', minEngagementScore);
-    }
-    if (maxEngagementScore) {
-      query = query.lte('engagement_score', maxEngagementScore);
-    }
-
-    const { data, error } = await query;
-
-    if (error) {
-      return res.status(400).json({ error: error.message });
-    }
-
-    const engagementStats = {
-      total: data.length,
-      average: data.length > 0 ? data.reduce((sum, i) => sum + (i.engagement_score || 0), 0) / data.length : 0,
-      highEngagement: data.filter(i => (i.engagement_score || 0) >= 80).length,
-      mediumEngagement: data.filter(i => (i.engagement_score || 0) >= 50 && (i.engagement_score || 0) < 80).length,
-      lowEngagement: data.filter(i => (i.engagement_score || 0) < 50).length
-    };
-
-    res.json({ success: true, data: engagementStats });
-  } catch (error) {
-    console.error('Error fetching engagement analytics:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-};
-
-// Helper function to get time ago
-const getTimeAgo = (dateString) => {
-  const now = new Date();
-  const date = new Date(dateString);
-  const diffInMinutes = Math.floor((now - date) / (1000 * 60));
-  
-  if (diffInMinutes < 1) return 'Just now';
-  if (diffInMinutes < 60) return `${diffInMinutes} minutes ago`;
-  if (diffInMinutes < 1440) return `${Math.floor(diffInMinutes / 60)} hours ago`;
-  return `${Math.floor(diffInMinutes / 1440)} days ago`;
-};
-
-module.exports = {
-  getOverviewAnalytics,
-  getConversionFunnel,
-  getRecentActivity,
-  getWeeklyActivity,
-  getDemoPerformance,
-  getEngagementAnalytics
-}; 
+module.exports = analyticsController;

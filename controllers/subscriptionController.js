@@ -252,22 +252,34 @@ const subscriptionController = {
   async handleWebhook(req, res) {
     try {
       const signature = req.headers['x-signature'];
-      const rawBody = JSON.stringify(req.body);
+      
+      // req.body is a Buffer when using express.raw()
+      const rawBody = req.body.toString('utf8');
+      
+      console.log('🔔 Webhook signature received:', signature);
+      console.log('🔔 Raw body length:', rawBody.length);
+      console.log('🔔 Webhook secret length:', process.env.LEMONSQUEEZY_WEBHOOK_SECRET?.length);
 
       // Verify webhook signature
       const hmac = crypto.createHmac('sha256', process.env.LEMONSQUEEZY_WEBHOOK_SECRET);
       hmac.update(rawBody);
       const expectedSignature = hmac.digest('hex');
 
+      console.log('🔔 Expected signature:', expectedSignature);
+      console.log('🔔 Received signature:', signature);
+
       if (signature !== expectedSignature) {
         console.error('❌ Invalid webhook signature');
+        console.error('❌ Expected:', expectedSignature);
+        console.error('❌ Received:', signature);
         return res.status(401).json({
           success: false,
           error: 'Invalid signature'
         });
       }
 
-      const event = req.body;
+      // Parse the JSON body
+      const event = JSON.parse(rawBody);
       const eventName = event.meta?.event_name;
 
       console.log('🔔 Webhook received:', eventName);
@@ -413,27 +425,38 @@ const subscriptionController = {
         });
       }
 
-      // Get company
+      // Get company with subscription details
       const { data: company, error: companyError } = await supabase
         .from('companies')
-        .select('lemonsqueezy_customer_id')
+        .select('subscription_id, lemonsqueezy_customer_id')
         .eq('id', companyId)
         .eq('user_id', userData.id)
         .single();
 
-      if (companyError || !company.lemonsqueezy_customer_id) {
+      if (companyError || !company.subscription_id) {
         return res.status(404).json({
           success: false,
-          error: 'No subscription found'
+          error: 'No active subscription found'
         });
       }
 
-      // Customer portal URL
-      const portalUrl = `https://${process.env.LEMONSQUEEZY_STORE_ID}.lemonsqueezy.com/billing`;
+      // Get fresh subscription data from Lemon Squeezy API to get customer portal URL
+      const subscriptionResponse = await axios.get(
+        `https://api.lemonsqueezy.com/v1/subscriptions/${company.subscription_id}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${process.env.LEMONSQUEEZY_API_KEY}`,
+            'Accept': 'application/vnd.api+json'
+          }
+        }
+      );
+
+      const subscriptionData = subscriptionResponse.data.data.attributes;
+      const customerPortalUrl = subscriptionData.urls.customer_portal;
 
       res.json({
         success: true,
-        portalUrl
+        portalUrl: customerPortalUrl
       });
 
     } catch (error) {

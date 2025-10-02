@@ -451,11 +451,10 @@ router.post('/share/:shareToken/chat', async (req, res) => {
         
         console.log(`🎬 Final public chat response:`, JSON.stringify(finalResponse, null, 2));
         
-        // Store the public Q&A interaction in database (only for successful responses)
-        if (isSuccess) {
-          try {
+        // Store the public Q&A interaction in database (for both successful and irrelevant responses)
+        try {
           const companyId = company.id || share.company_id;
-          console.log(`💾 Storing public Q&A - Company ID: ${companyId}, QuDemo ID: ${qudemo.id}`);
+          console.log(`💾 Storing public Q&A - Company ID: ${companyId}, QuDemo ID: ${qudemo.id}, Success: ${isSuccess}`);
           
           if (!companyId) {
             throw new Error('Company ID is required for storing public Q&A');
@@ -482,12 +481,11 @@ router.post('/share/:shareToken/chat', async (req, res) => {
               user_agent: req.get('User-Agent')
             }
           });
-            console.log(`✅ Public Q&A interaction stored successfully`);
+            console.log(`✅ Public Q&A interaction stored successfully (Success: ${isSuccess})`);
           } catch (storageError) {
             console.error(`⚠️ Failed to store public Q&A interaction:`, storageError);
             // Don't fail the request if storage fails, just log the error
           }
-        }
         
         return res.json(finalResponse);
       } else {

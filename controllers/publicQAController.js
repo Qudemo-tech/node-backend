@@ -34,6 +34,10 @@ class PublicQAController {
                 metadata = {}
             } = data;
 
+            // Determine if this is an irrelevant answer
+            const isIrrelevant = this._isIrrelevantAnswer(answer, metadata);
+            const irrelevantReason = isIrrelevant ? this._getIrrelevantReason(answer, metadata) : null;
+
             // Prepare the data for insertion
             const qaData = {
                 id: uuidv4(),
@@ -54,6 +58,8 @@ class PublicQAController {
                 estimated_time: metadata.estimated_time || 'unknown',
                 user_ip: metadata.user_ip || null,
                 user_agent: metadata.user_agent || null,
+                is_irrelevant: isIrrelevant,
+                irrelevant_reason: irrelevantReason,
                 created_at: new Date().toISOString()
             };
 
@@ -84,6 +90,134 @@ class PublicQAController {
             console.error('❌ Public Q&A storage error:', error);
             throw error;
         }
+    }
+
+    /**
+     * Check if an answer is irrelevant
+     * @param {string} answer - The answer text
+     * @param {Object} metadata - Answer metadata
+     * @returns {boolean} - True if answer is irrelevant
+     */
+    _isIrrelevantAnswer(answer, metadata) {
+        if (!answer) return true;
+        
+        const answerLower = answer.toLowerCase().trim();
+        
+        // Check for "not found" patterns - these are definitely irrelevant
+        const notFoundPatterns = [
+            'not found',
+            'no relevant information found',
+            'no relevant content found',
+            'no information available',
+            'no content available',
+            'no relevant data',
+            'no relevant content',
+            'information not available',
+            'content not available',
+            'no matching information',
+            'no matching content'
+        ];
+        
+        const isNotFound = notFoundPatterns.some(pattern => answerLower.includes(pattern));
+        
+        // If it's a "not found" answer, it's definitely irrelevant
+        if (isNotFound) return true;
+        
+        // Check if answer is too short or generic
+        const isTooShort = answer.length < 20;
+        const isGeneric = this._isGenericAnswer(answer);
+        
+        // Only mark as irrelevant based on content quality, not confidence scores
+        // Confidence scores seem unreliable in this system
+        return isNotFound || isTooShort || isGeneric;
+    }
+
+    /**
+     * Check if an answer is generic or unhelpful
+     * @param {string} answer - The answer text
+     * @returns {boolean} - True if answer is generic
+     */
+    _isGenericAnswer(answer) {
+        if (!answer) return true;
+        
+        const answerLower = answer.toLowerCase().trim();
+        
+        // Generic/unhelpful answer patterns
+        const genericPatterns = [
+            'i don\'t know',
+            'i don\'t understand',
+            'i can\'t help',
+            'i\'m not sure',
+            'i cannot',
+            'sorry, i don\'t',
+            'i\'m sorry, but',
+            'unfortunately, i',
+            'i\'m unable to',
+            'i can\'t find',
+            'i don\'t have',
+            'no information',
+            'no data',
+            'no content',
+            'nothing found',
+            'unable to find',
+            'cannot find',
+            'not available',
+            'not found',
+            'no results',
+            'no answer',
+            'no response',
+            'i don\'t have access',
+            'i don\'t have information',
+            'i don\'t have data',
+            'i don\'t have content'
+        ];
+        
+        return genericPatterns.some(pattern => answerLower.includes(pattern));
+    }
+
+    /**
+     * Get the reason why an answer is irrelevant
+     * @param {string} answer - The answer text
+     * @param {Object} metadata - Answer metadata
+     * @returns {string} - Reason for irrelevance
+     */
+    _getIrrelevantReason(answer, metadata) {
+        if (!answer) return 'No answer provided';
+        
+        const answerLower = answer.toLowerCase().trim();
+        
+        // Check for "not found" patterns
+        const notFoundPatterns = [
+            'not found',
+            'no relevant information found',
+            'no relevant content found',
+            'no information available',
+            'no content available',
+            'no relevant data',
+            'no relevant content',
+            'information not available',
+            'content not available',
+            'no matching information',
+            'no matching content'
+        ];
+        
+        const isNotFound = notFoundPatterns.some(pattern => answerLower.includes(pattern));
+        
+        if (isNotFound) {
+            return 'No relevant information found in content';
+        }
+        
+        // Check if answer is too short
+        if (answer.length < 20) {
+            return 'Answer too short to be meaningful';
+        }
+        
+        // Check if answer is generic
+        if (this._isGenericAnswer(answer)) {
+            return 'Generic or unhelpful response';
+        }
+        
+        return 'Answer marked as irrelevant by system';
     }
 
     /**
