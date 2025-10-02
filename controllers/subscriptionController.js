@@ -101,7 +101,7 @@ const subscriptionController = {
       // Create checkout session using Lemon Squeezy API
       console.log('🔗 Creating checkout session via API...');
       
-      const checkoutResponse = await axios.post('https://api.lemonsqueezy.com/v1/checkouts', {
+      const requestPayload = {
         data: {
           type: 'checkouts',
           attributes: {
@@ -129,13 +129,25 @@ const subscriptionController = {
             }
           }
         }
-      }, {
-        headers: {
-          'Authorization': `Bearer ${process.env.LEMONSQUEEZY_API_KEY}`,
-          'Accept': 'application/vnd.api+json',
-          'Content-Type': 'application/vnd.api+json',
-        }
+      };
+
+      const requestHeaders = {
+        'Authorization': `Bearer ${process.env.LEMONSQUEEZY_API_KEY}`,
+        'Accept': 'application/vnd.api+json',
+        'Content-Type': 'application/vnd.api+json',
+      };
+
+      console.log('🔗 Lemon Squeezy Request URL:', 'https://api.lemonsqueezy.com/v1/checkouts');
+      console.log('🔗 Lemon Squeezy Request Headers:', JSON.stringify(requestHeaders, null, 2));
+      console.log('🔗 Lemon Squeezy Request Payload:', JSON.stringify(requestPayload, null, 2));
+      
+      const checkoutResponse = await axios.post('https://api.lemonsqueezy.com/v1/checkouts', requestPayload, {
+        headers: requestHeaders
       });
+
+      console.log('🔗 Lemon Squeezy Response Status:', checkoutResponse.status);
+      console.log('🔗 Lemon Squeezy Response Headers:', JSON.stringify(checkoutResponse.headers, null, 2));
+      console.log('🔗 Lemon Squeezy Response Data:', JSON.stringify(checkoutResponse.data, null, 2));
 
       const fullCheckoutUrl = checkoutResponse.data.data.attributes.url;
       console.log('🔗 Generated checkout URL:', fullCheckoutUrl);
@@ -149,10 +161,23 @@ const subscriptionController = {
 
     } catch (error) {
       console.error('❌ Error creating checkout:', error);
+      
+      // Log detailed error information from Lemon Squeezy
+      if (error.response) {
+        console.error('❌ Lemon Squeezy Error Response Status:', error.response.status);
+        console.error('❌ Lemon Squeezy Error Response Headers:', JSON.stringify(error.response.headers, null, 2));
+        console.error('❌ Lemon Squeezy Error Response Data:', JSON.stringify(error.response.data, null, 2));
+      } else if (error.request) {
+        console.error('❌ No response received from Lemon Squeezy:', error.request);
+      } else {
+        console.error('❌ Request setup error:', error.message);
+      }
+      
       res.status(500).json({
         success: false,
         error: 'Failed to create checkout session',
-        details: error.message
+        details: error.message,
+        lemonSqueezyError: error.response?.data || null
       });
     }
   },
