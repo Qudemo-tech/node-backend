@@ -276,6 +276,11 @@ const subscriptionController = {
    */
   async handleWebhook(req, res) {
     try {
+      console.log('🔔 ===== WEBHOOK RECEIVED =====');
+      console.log('🔔 Request method:', req.method);
+      console.log('🔔 Request URL:', req.url);
+      console.log('🔔 Request headers:', JSON.stringify(req.headers, null, 2));
+      
       const signature = req.headers['x-signature'];
       
       // req.body is a Buffer when using express.raw()
@@ -283,6 +288,7 @@ const subscriptionController = {
       
       console.log('🔔 Webhook signature received:', signature);
       console.log('🔔 Raw body length:', rawBody.length);
+      console.log('🔔 Raw body content:', rawBody);
       console.log('🔔 Webhook secret length:', process.env.LEMONSQUEEZY_WEBHOOK_SECRET?.length);
 
       // Verify webhook signature
@@ -307,31 +313,42 @@ const subscriptionController = {
       const event = JSON.parse(rawBody);
       const eventName = event.meta?.event_name;
 
-      console.log('🔔 Webhook received:', eventName);
+      console.log('🔔 Parsed event data:', JSON.stringify(event, null, 2));
+      console.log('🔔 Event name:', eventName);
+      console.log('🔔 Event type:', event.data?.type);
+      console.log('🔔 Event ID:', event.data?.id);
 
       switch (eventName) {
         case 'subscription_created':
+          console.log('🔔 Processing subscription_created event...');
           await handleSubscriptionCreated(event);
           break;
         case 'subscription_updated':
+          console.log('🔔 Processing subscription_updated event...');
           await handleSubscriptionUpdated(event);
           break;
         case 'subscription_cancelled':
+          console.log('🔔 Processing subscription_cancelled event...');
           await handleSubscriptionCancelled(event);
           break;
         case 'subscription_resumed':
+          console.log('🔔 Processing subscription_resumed event...');
           await handleSubscriptionResumed(event);
           break;
         case 'subscription_payment_success':
+          console.log('🔔 Processing subscription_payment_success event...');
           await handlePaymentSuccess(event);
           break;
         case 'subscription_payment_failed':
+          console.log('🔔 Processing subscription_payment_failed event...');
           await handlePaymentFailed(event);
           break;
         default:
           console.log('⚠️ Unhandled webhook event:', eventName);
+          console.log('⚠️ Full event data:', JSON.stringify(event, null, 2));
       }
 
+      console.log('🔔 Webhook processing completed successfully');
       res.json({ success: true });
 
     } catch (error) {
@@ -416,6 +433,25 @@ const subscriptionController = {
         details: error.message
       });
     }
+  },
+
+  /**
+   * Test webhook endpoint (for debugging)
+   */
+  async testWebhook(req, res) {
+    console.log('🔔 ===== WEBHOOK TEST ENDPOINT HIT =====');
+    console.log('🔔 Request method:', req.method);
+    console.log('🔔 Request URL:', req.url);
+    console.log('🔔 Request headers:', JSON.stringify(req.headers, null, 2));
+    console.log('🔔 Request body:', req.body);
+    
+    res.json({
+      success: true,
+      message: 'Webhook endpoint is reachable',
+      timestamp: new Date().toISOString(),
+      headers: req.headers,
+      body: req.body
+    });
   },
 
   /**

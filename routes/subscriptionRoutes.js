@@ -18,5 +18,8 @@ router.get('/:companyId/billing-portal', authenticateToken, subscriptionControll
 // Webhook endpoint (no auth required - verified by signature)
 router.post('/webhook', express.raw({ type: 'application/json' }), subscriptionController.handleWebhook);
 
+// Test webhook endpoint (for debugging)
+router.post('/webhook-test', express.raw({ type: 'application/json' }), subscriptionController.testWebhook);
+
 module.exports = router;
 
