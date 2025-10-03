@@ -3,8 +3,8 @@ const router = express.Router();
 const { authenticateToken } = require('../middleware/auth');
 const subscriptionController = require('../controllers/subscriptionController');
 
-// Create checkout session
-router.post('/checkout', authenticateToken, subscriptionController.createCheckout);
+// Create checkout session (needs JSON parsing)
+router.post('/checkout', express.json(), authenticateToken, subscriptionController.createCheckout);
 
 // Get subscription status
 router.get('/:companyId', authenticateToken, subscriptionController.getSubscription);
