@@ -480,6 +480,7 @@ async function handleSubscriptionCreated(event) {
   const customData = attributes.custom_data || {};
 
   console.log('✅ Subscription created:', data.id);
+  console.log('🔍 Custom data:', customData);
 
   const updateData = {
     subscription_id: data.id,
@@ -492,6 +493,8 @@ async function handleSubscriptionCreated(event) {
   };
 
   if (customData.company_id) {
+    console.log('🔍 Updating company:', customData.company_id, 'with data:', updateData);
+    
     const { error } = await supabase
       .from('companies')
       .update(updateData)
@@ -502,6 +505,8 @@ async function handleSubscriptionCreated(event) {
     } else {
       console.log('✅ Company subscription updated');
     }
+  } else {
+    console.error('❌ No company_id in custom_data');
   }
 }
 
