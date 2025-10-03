@@ -259,6 +259,8 @@ const subscriptionController = {
       console.log('🔔 Webhook signature received:', signature);
       console.log('🔔 Raw body length:', rawBody.length);
       console.log('🔔 Webhook secret length:', process.env.LEMONSQUEEZY_WEBHOOK_SECRET?.length);
+      console.log("Secret from env:", process.env.LEMONSQUEEZY_WEBHOOK_SECRET);
+      console.log("Signature header:", signature);
 
       // Verify webhook signature
       const hmac = crypto.createHmac('sha256', process.env.LEMONSQUEEZY_WEBHOOK_SECRET);
@@ -267,6 +269,7 @@ const subscriptionController = {
 
       console.log('🔔 Expected signature:', expectedSignature);
       console.log('🔔 Received signature:', signature);
+      console.log("Expected signature:", expectedSignature);
 
       if (signature !== expectedSignature) {
         console.error('❌ Invalid webhook signature');

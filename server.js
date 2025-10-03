@@ -94,10 +94,6 @@ app.use(morgan('combined'));
 // Rate limiting
 app.use(limiter);
 
-// Body parsing middleware
-app.use(express.json({ limit: '100mb' }));
-app.use(express.urlencoded({ extended: true, limit: '100mb' }));
-
 // Company logging middleware
 app.use(requestLogger);
 
@@ -119,7 +115,13 @@ app.get('/health', healthCheck, (req, res) => {
     });
 });
 
+// CRITICAL: Webhook route MUST come before global JSON parsing
+// This ensures the webhook gets raw body for signature verification
+app.use('/api/subscription', subscriptionRoutes);
 
+// Body parsing middleware (after webhook route)
+app.use(express.json({ limit: '100mb' }));
+app.use(express.urlencoded({ extended: true, limit: '100mb' }));
 
 // API routes
 app.use('/api/auth', authRoutes);
@@ -135,7 +137,6 @@ app.use('/api/settings', settingsRoutes);
 app.use('/api/qa', qaRoutes);
 app.use('/api/logs', logRoutes);
 app.use('/api/documents', documentRoutes);
-app.use('/api/subscription', subscriptionRoutes);
 // PoToken routes removed - using direct VM access
 
 // 404 handler
