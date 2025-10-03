@@ -1718,12 +1718,34 @@ const generateShareLink = async (req, res) => {
 
     if (!isPro || !isActive) {
       console.log(`❌ Subscription required - Current plan: ${subscriptionPlan}, Status: ${subscriptionStatus}`);
+      
+      // Check if subscription was cancelled/expired
+      const isCancelled = ['cancelled', 'expired', 'past_due'].includes(subscriptionStatus);
+      
+      let errorMessage, upgradeMessage;
+      
+      if (isCancelled && subscriptionPlan === 'enterprise') {
+        errorMessage = 'Your Enterprise plan has been cancelled';
+        upgradeMessage = 'Your Enterprise subscription has been cancelled. Renew your subscription to access share functionality and advanced analytics.';
+      } else if (isCancelled && subscriptionPlan === 'pro') {
+        errorMessage = 'Your Pro plan has been cancelled';
+        upgradeMessage = 'Your Pro subscription has been cancelled. Renew your subscription to access share functionality.';
+      } else if (subscriptionPlan === 'free') {
+        errorMessage = 'Share functionality requires Pro or Enterprise plan';
+        upgradeMessage = 'Upgrade to Pro or Enterprise to generate shareable links for your QuDemos.';
+      } else {
+        errorMessage = 'Share functionality requires Pro or Enterprise plan';
+        upgradeMessage = 'Upgrade to Pro or Enterprise to generate shareable links for your QuDemos.';
+      }
+      
       return res.status(403).json({
         success: false,
-        error: 'Pro or Enterprise plan required to share QuDemos',
+        error: errorMessage,
         requiresUpgrade: true,
         currentPlan: subscriptionPlan,
-        subscriptionStatus: subscriptionStatus
+        subscriptionStatus: subscriptionStatus,
+        isCancelled: isCancelled,
+        message: upgradeMessage
       });
     }
 
@@ -1791,6 +1813,9 @@ const generateShareLink = async (req, res) => {
       // In development, use localhost
       baseUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
     }
+    
+    // Remove trailing slash from baseUrl to prevent double slashes
+    baseUrl = baseUrl.replace(/\/$/, '');
     const shareUrl = `${baseUrl}/share/${shareToken}`;
 
     // Update qudemo with share info (mark as shared, but don't store the specific link since we generate new ones each time)
@@ -1926,7 +1951,7 @@ const getSharedQudemo = async (req, res) => {
       console.error('❌ Error fetching knowledge sources:', knowledgeError);
     }
 
-    // Update view count
+    // Update view count in analytics table
     await supabase
       .from('qudemo_analytics')
       .upsert({
@@ -1937,7 +1962,25 @@ const getSharedQudemo = async (req, res) => {
         ignoreDuplicates: false
       });
 
-    console.log(`✅ Shared qudemo accessed: ${qudemo.title}`);
+    // Update access count in shares table
+    const newAccessCount = (share.access_count || 0) + 1;
+    console.log(`🔍 Updating access count for share token ${shareToken}: ${share.access_count || 0} → ${newAccessCount}`);
+    
+    const { error: updateError } = await supabase
+      .from('qudemo_shares')
+      .update({
+        access_count: newAccessCount,
+        last_accessed_at: new Date().toISOString()
+      })
+      .eq('share_token', shareToken);
+
+    if (updateError) {
+      console.error('❌ Error updating access count:', updateError);
+    } else {
+      console.log(`✅ Access count updated successfully: ${newAccessCount}`);
+    }
+
+    console.log(`✅ Shared qudemo accessed: ${qudemo.title} (access count: ${newAccessCount})`);
 
     res.json({
       success: true,

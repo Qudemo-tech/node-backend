@@ -136,7 +136,7 @@ const analyticsController = {
           share_links: shares.map(share => ({
             id: share.id,
             share_token: share.share_token,
-            share_url: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/share/${share.share_token}`,
+            share_url: `${(process.env.FRONTEND_URL || 'http://localhost:3000').replace(/\/$/, '')}/share/${share.share_token}`,
             created_at: share.created_at,
             expires_at: share.expires_at,
             access_count: share.access_count || 0,
@@ -272,7 +272,7 @@ const analyticsController = {
         },
         share_links: shareLinks.map(share => ({
           ...share,
-          share_url: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/share/${share.share_token}`
+          share_url: `${(process.env.FRONTEND_URL || 'http://localhost:3000').replace(/\/$/, '')}/share/${share.share_token}`
         })),
         qa_data: qaData,
         access_logs: accessLogs || [],

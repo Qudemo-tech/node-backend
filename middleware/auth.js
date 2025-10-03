@@ -65,6 +65,7 @@ const authenticateToken = async (req, res, next) => {
         }
         
         // Try to verify with Supabase (for OAuth users)
+        
         const { data: { user: supabaseUser }, error: supabaseError } = await supabase.auth.getUser(token);
         
         if (!supabaseError && supabaseUser) {
@@ -149,6 +150,7 @@ const requireCompanyAccess = async (req, res, next) => {
         }
 
         // Check if user has access to this company
+        
         const { data: userCompany, error } = await supabase
             .from('companies')
             .select('id, name, user_id')
@@ -186,6 +188,7 @@ const optionalAuth = async (req, res, next) => {
 
         if (token) {
             const decoded = jwt.verify(token, process.env.JWT_SECRET);
+            
             
             const { data: user, error } = await supabase
                 .from('users')
@@ -230,6 +233,7 @@ const generateToken = (userId, role) => {
 const verifyRefreshToken = async (refreshToken) => {
     try {
         const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET);
+        
         
         const { data: user, error } = await supabase
             .from('users')
