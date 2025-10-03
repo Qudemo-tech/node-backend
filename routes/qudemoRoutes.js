@@ -227,6 +227,216 @@ router.post('/:id/share', (req, res, next) => {
   next();
 }, authenticateToken, generateShareLink);
 
+// Generate bulk share links for qudemo (Enterprise only)
+router.post('/bulk-share', authenticateToken, async (req, res) => {
+  try {
+    console.log(`🔗 ===== BULK SHARE ROUTE HIT =====`);
+    console.log(`🔗 Method: ${req.method}`);
+    console.log(`🔗 URL: ${req.url}`);
+    console.log(`🔗 Body:`, req.body);
+
+    const { qudemoId, clientData } = req.body;
+    const userId = req.user?.userId || req.user?.id;
+
+    if (!qudemoId) {
+      return res.status(400).json({
+        success: false,
+        error: 'QuDemo ID is required'
+      });
+    }
+
+    // Check if user has Enterprise subscription
+    const { data: userCompany, error: companyError } = await supabase
+      .from('companies')
+      .select('subscription_plan, subscription_status')
+      .eq('user_id', userId)
+      .single();
+
+    if (companyError || !userCompany) {
+      return res.status(404).json({
+        success: false,
+        error: 'Company not found'
+      });
+    }
+
+    const subscriptionPlan = userCompany.subscription_plan || 'free';
+    const subscriptionStatus = userCompany.subscription_status || 'active';
+    const isEnterprise = subscriptionPlan === 'enterprise' && ['active', 'trialing'].includes(subscriptionStatus);
+
+    if (!isEnterprise) {
+      return res.status(403).json({
+        success: false,
+        error: 'Bulk Share feature requires Enterprise plan',
+        requiresUpgrade: true,
+        currentPlan: subscriptionPlan,
+        requiredPlan: 'enterprise'
+      });
+    }
+
+    if (!clientData || !Array.isArray(clientData) || clientData.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Client data is required and must be a non-empty array'
+      });
+    }
+
+    // Verify user has access to this QuDemo
+    const { data: qudemo, error: qudemoError } = await supabase
+      .from('qudemos_new')
+      .select(`
+        id,
+        title,
+        description,
+        company_id,
+        is_active,
+        companies!inner(id, name, user_id)
+      `)
+      .eq('id', qudemoId)
+      .eq('is_active', true)
+      .single();
+
+    if (qudemoError || !qudemo) {
+      console.log(`❌ QuDemo not found or access denied: ${qudemoId}`);
+      return res.status(404).json({
+        success: false,
+        error: 'QuDemo not found or access denied'
+      });
+    }
+
+    // Check if user owns the company
+    if (qudemo.companies.user_id !== userId) {
+      console.log(`❌ User ${userId} does not own company ${qudemo.company_id}`);
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied to this QuDemo'
+      });
+    }
+
+    console.log(`✅ User ${userId} has access to QuDemo ${qudemoId}`);
+
+    // Generate share links for each client
+    const results = [];
+    const errors = [];
+
+    for (let i = 0; i < clientData.length; i++) {
+      const client = clientData[i];
+      
+      try {
+        // Generate unique share token
+        const shareToken = require('crypto').randomUUID();
+        
+        // Set expiration date (1 year from now)
+        const expiresAt = new Date();
+        expiresAt.setFullYear(expiresAt.getFullYear() + 1);
+
+        // Create share record with client information
+        const shareData = {
+          share_token: shareToken,
+          qudemo_id: qudemoId,
+          company_id: qudemo.company_id,
+          created_by: userId,
+          expires_at: expiresAt.toISOString(),
+          is_active: true,
+          view_count: 0,
+          access_count: 0,
+          // Client information
+          client_name: client.clientName,
+          client_company: client.companyName,
+          client_email: client.email,
+          client_sl_no: client.slNo
+        };
+
+        const { data: shareResult, error: shareError } = await supabase
+          .from('qudemo_shares')
+          .insert(shareData)
+          .select()
+          .single();
+
+        if (shareError) {
+          console.error(`❌ Error creating share for client ${client.slNo}:`, shareError);
+          errors.push({
+            slNo: client.slNo,
+            clientName: client.clientName,
+            error: shareError.message
+          });
+          continue;
+        }
+
+        // Generate share URL
+        let baseUrl;
+        if (process.env.NODE_ENV === 'production') {
+          baseUrl = process.env.FRONTEND_URL || 'https://qudemo.com';
+          if (baseUrl.includes('qu-demo.vercel.app') || baseUrl.includes('qudemo.vercel.app')) {
+            baseUrl = 'https://qudemo.com';
+          }
+        } else {
+          baseUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+        }
+        
+        // Remove trailing slash from baseUrl to prevent double slashes
+        baseUrl = baseUrl.replace(/\/$/, '');
+        const shareUrl = `${baseUrl}/share/${shareToken}`;
+
+        results.push({
+          slNo: client.slNo,
+          clientName: client.clientName,
+          companyName: client.companyName,
+          email: client.email,
+          shareToken: shareToken,
+          shareUrl: shareUrl,
+          shareId: shareResult.id,
+          expiresAt: expiresAt.toISOString()
+        });
+
+        console.log(`✅ Created share link for client ${client.slNo}: ${shareToken}`);
+
+      } catch (error) {
+        console.error(`❌ Error processing client ${client.slNo}:`, error);
+        errors.push({
+          slNo: client.slNo,
+          clientName: client.clientName,
+          error: error.message
+        });
+      }
+    }
+
+    console.log(`📊 Bulk share results: ${results.length} successful, ${errors.length} errors`);
+
+    // Update qudemo as shared if not already
+    if (results.length > 0) {
+      await supabase
+        .from('qudemos_new')
+        .update({ 
+          is_shared: true,
+          share_created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', qudemoId);
+    }
+
+    res.json({
+      success: true,
+      data: results,
+      errors: errors,
+      summary: {
+        total_clients: clientData.length,
+        successful: results.length,
+        failed: errors.length,
+        qudemo_id: qudemoId,
+        qudemo_title: qudemo.title
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error in bulk share:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to generate bulk share links',
+      details: error.message
+    });
+  }
+});
+
 // Get shared qudemo (public access - no authentication required)
 router.get('/share/:shareToken', getSharedQudemo);
 

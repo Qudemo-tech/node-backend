@@ -64,7 +64,13 @@ const analyticsController = {
           share_token,
           qudemo_id,
           created_at,
-          expires_at
+          expires_at,
+          access_count,
+          last_accessed_at,
+          client_name,
+          client_company,
+          client_email,
+          client_sl_no
         `)
         .in('qudemo_id', qudemoIds)
         .order('created_at', { ascending: false });
@@ -140,7 +146,11 @@ const analyticsController = {
             created_at: share.created_at,
             expires_at: share.expires_at,
             access_count: share.access_count || 0,
-            last_accessed_at: share.last_accessed_at || null
+            last_accessed_at: share.last_accessed_at || null,
+            client_name: share.client_name || null,
+            client_company: share.client_company || null,
+            client_email: share.client_email || null,
+            client_sl_no: share.client_sl_no || null
           })),
           qa_data: qa.map(qaItem => ({
             id: qaItem.id,
