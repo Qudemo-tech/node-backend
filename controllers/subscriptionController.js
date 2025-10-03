@@ -138,13 +138,26 @@ const subscriptionController = {
       });
 
       const fullCheckoutUrl = checkoutResponse.data.data.attributes.url;
+      const checkoutId = checkoutResponse.data.data.id;
+      
       console.log('🔗 Generated checkout URL:', fullCheckoutUrl);
+      console.log('🔗 Checkout ID:', checkoutId);
+
+      // Store the checkout ID temporarily to link with the customer later
+      // This helps us track the checkout session
+      console.log('🔍 Checkout created with custom data:', {
+        user_id: userId,
+        company_id: companyData.id,
+        plan: plan,
+        billing_cycle: billingCycle
+      });
 
       res.json({
         success: true,
         checkoutUrl: fullCheckoutUrl,
         plan,
-        billingCycle
+        billingCycle,
+        checkoutId: checkoutId
       });
 
     } catch (error) {
@@ -286,6 +299,7 @@ const subscriptionController = {
       const eventName = event.meta?.event_name;
 
       console.log('🔔 Webhook received:', eventName);
+      console.log('🔔 Full webhook payload:', JSON.stringify(event, null, 2));
 
       switch (eventName) {
         case 'subscription_created':
@@ -477,10 +491,26 @@ const subscriptionController = {
 async function handleSubscriptionCreated(event) {
   const data = event.data;
   const attributes = data.attributes;
-  const customData = attributes.custom_data || {};
+  
+  // Check multiple possible locations for custom data
+  let customData = attributes.custom_data || {};
+  
+  // Also check if custom data is in meta
+  if (event.meta && event.meta.custom_data) {
+    customData = { ...customData, ...event.meta.custom_data };
+  }
+  
+  // Check if custom data is directly in attributes
+  if (attributes.custom) {
+    customData = { ...customData, ...attributes.custom };
+  }
 
   console.log('✅ Subscription created:', data.id);
-  console.log('🔍 Custom data:', customData);
+  console.log('🔍 Custom data from attributes:', attributes.custom_data);
+  console.log('🔍 Custom data from meta:', event.meta?.custom_data);
+  console.log('🔍 Custom data from attributes.custom:', attributes.custom);
+  console.log('🔍 Final custom data:', customData);
+  console.log('🔍 Customer ID:', attributes.customer_id);
 
   const updateData = {
     subscription_id: data.id,
@@ -507,6 +537,62 @@ async function handleSubscriptionCreated(event) {
     }
   } else {
     console.error('❌ No company_id in custom_data');
+    console.log('🔍 Attempting to find company by customer_id:', attributes.customer_id);
+    
+    // Fallback 1: Try to find company by customer_id
+    let { data: company, error: findError } = await supabase
+      .from('companies')
+      .select('id, lemonsqueezy_customer_id, user_id')
+      .eq('lemonsqueezy_customer_id', attributes.customer_id)
+      .single();
+
+    if (company && !findError) {
+      console.log('🔍 Found company by customer_id:', company.id);
+    } else {
+      console.log('🔍 No company found by customer_id, trying to find by user email...');
+      
+      // Fallback 2: Try to find company by user email
+      if (attributes.user_email) {
+        const { data: userData } = await supabase
+          .from('users')
+          .select('id')
+          .eq('email', attributes.user_email)
+          .single();
+        
+        if (userData) {
+          console.log('🔍 Found user by email:', userData.id);
+          const { data: companiesData } = await supabase
+            .from('companies')
+            .select('id, user_id')
+            .eq('user_id', userData.id)
+            .limit(1);
+          
+          if (companiesData && companiesData.length > 0) {
+            company = companiesData[0];
+            console.log('🔍 Found company by user email:', company.id);
+          }
+        }
+      }
+    }
+
+    if (company) {
+      const { error: updateError } = await supabase
+        .from('companies')
+        .update(updateData)
+        .eq('id', company.id);
+
+      if (updateError) {
+        console.error('❌ Error updating company:', updateError);
+      } else {
+        console.log('✅ Company subscription updated successfully');
+      }
+    } else {
+      console.error('❌ Could not find company by any method');
+      console.log('🔍 Available data for debugging:');
+      console.log('   - Customer ID:', attributes.customer_id);
+      console.log('   - User Email:', attributes.user_email);
+      console.log('   - Subscription ID:', data.id);
+    }
   }
 }
 
