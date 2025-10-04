@@ -36,7 +36,7 @@ const checkSubscription = async (req, res, next) => {
     req.subscription = {
       plan: company.subscription_plan || 'free',
       status: company.subscription_status || 'active',
-      isActive: ['active', 'trialing'].includes(company.subscription_status || 'active'),
+      isActive: ['active', 'trialing', 'on_trial'].includes(company.subscription_status || 'active'),
       isPro: ['pro', 'enterprise'].includes(company.subscription_plan || 'free'),
       isEnterprise: company.subscription_plan === 'enterprise'
     };
@@ -81,7 +81,7 @@ const requirePro = async (req, res, next) => {
     const plan = company.subscription_plan || 'free';
     const status = company.subscription_status || 'active';
     const isPro = ['pro', 'enterprise'].includes(plan);
-    const isActive = ['active', 'trialing'].includes(status);
+    const isActive = ['active', 'trialing', 'on_trial'].includes(status);
 
     if (!isPro || !isActive) {
       return res.status(403).json({
@@ -141,7 +141,7 @@ const requireEnterprise = async (req, res, next) => {
     const plan = company.subscription_plan || 'free';
     const status = company.subscription_status || 'active';
     const isEnterprise = plan === 'enterprise';
-    const isActive = ['active', 'trialing'].includes(status);
+    const isActive = ['active', 'trialing', 'on_trial'].includes(status);
 
     if (!isEnterprise || !isActive) {
       return res.status(403).json({
@@ -209,7 +209,7 @@ const attachSubscription = async (req, res, next) => {
     req.subscription = {
       plan: company.subscription_plan || 'free',
       status: company.subscription_status || 'active',
-      isActive: ['active', 'trialing'].includes(company.subscription_status || 'active'),
+      isActive: ['active', 'trialing', 'on_trial'].includes(company.subscription_status || 'active'),
       isPro: ['pro', 'enterprise'].includes(company.subscription_plan || 'free'),
       isEnterprise: company.subscription_plan === 'enterprise'
     };

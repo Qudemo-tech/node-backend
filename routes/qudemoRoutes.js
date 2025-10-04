@@ -261,7 +261,7 @@ router.post('/bulk-share', authenticateToken, async (req, res) => {
 
     const subscriptionPlan = userCompany.subscription_plan || 'free';
     const subscriptionStatus = userCompany.subscription_status || 'active';
-    const isEnterprise = subscriptionPlan === 'enterprise' && ['active', 'trialing'].includes(subscriptionStatus);
+    const isEnterprise = subscriptionPlan === 'enterprise' && ['active', 'trialing', 'on_trial'].includes(subscriptionStatus);
 
     if (!isEnterprise) {
       return res.status(403).json({

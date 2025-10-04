@@ -1712,7 +1712,7 @@ const generateShareLink = async (req, res) => {
     const subscriptionPlan = companyAccess.subscription_plan || 'free';
     const subscriptionStatus = companyAccess.subscription_status || 'active';
     const isPro = ['pro', 'enterprise'].includes(subscriptionPlan);
-    const isActive = ['active', 'trialing'].includes(subscriptionStatus);
+    const isActive = ['active', 'trialing', 'on_trial'].includes(subscriptionStatus);
 
     console.log(`🔗 Subscription check - Plan: ${subscriptionPlan}, Status: ${subscriptionStatus}`);
 
@@ -1897,7 +1897,7 @@ const getSharedQudemo = async (req, res) => {
     const subscriptionPlan = company?.subscription_plan || 'free';
     const subscriptionStatus = company?.subscription_status || 'active';
     const isPro = ['pro', 'enterprise'].includes(subscriptionPlan);
-    const isActive = ['active', 'trialing'].includes(subscriptionStatus);
+    const isActive = ['active', 'trialing', 'on_trial'].includes(subscriptionStatus);
 
     console.log(`🔍 Subscription check for shared QuDemo - Plan: ${subscriptionPlan}, Status: ${subscriptionStatus}`);
 
