@@ -450,8 +450,10 @@ const subscriptionController = {
    */
   async getBillingPortal(req, res) {
     try {
+      console.log('🔍 Billing portal request for company:', req.params.companyId);
       const { companyId } = req.params;
       const authUserId = req.user.userId || req.user.id;
+      console.log('🔍 Auth user ID:', authUserId);
 
       // Get user
       let { data: userData, error: userError } = await supabase
@@ -485,7 +487,18 @@ const subscriptionController = {
         .eq('user_id', userData.id)
         .single();
 
-      if (companyError || !company.subscription_id) {
+      console.log('🔍 Company data:', { company, companyError });
+
+      if (companyError) {
+        console.log('❌ Company error:', companyError);
+        return res.status(404).json({
+          success: false,
+          error: 'Company not found'
+        });
+      }
+
+      if (!company.subscription_id) {
+        console.log('❌ No subscription ID found');
         return res.status(404).json({
           success: false,
           error: 'No active subscription found'
@@ -493,6 +506,7 @@ const subscriptionController = {
       }
 
       // Get fresh subscription data from Lemon Squeezy API to get customer portal URL
+      console.log('🔍 Fetching subscription from Lemon Squeezy:', company.subscription_id);
       const subscriptionResponse = await axios.get(
         `https://api.lemonsqueezy.com/v1/subscriptions/${company.subscription_id}`,
         {
@@ -505,6 +519,7 @@ const subscriptionController = {
 
       const subscriptionData = subscriptionResponse.data.data.attributes;
       const customerPortalUrl = subscriptionData.urls.customer_portal;
+      console.log('🔍 Customer portal URL:', customerPortalUrl);
 
       res.json({
         success: true,
