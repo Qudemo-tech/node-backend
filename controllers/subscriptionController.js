@@ -376,29 +376,64 @@ const subscriptionController = {
         .eq('user_id', userData.id)
         .single();
 
-      if (companyError || !company.subscription_id) {
+      if (companyError) {
         return res.status(404).json({
           success: false,
-          error: 'No active subscription found'
+          error: 'Company not found'
         });
       }
 
-      // Cancel subscription via Lemon Squeezy API
-      const response = await axios.delete(
-        `https://api.lemonsqueezy.com/v1/subscriptions/${company.subscription_id}`,
-        {
-          headers: {
-            'Authorization': `Bearer ${process.env.LEMONSQUEEZY_API_KEY}`,
-            'Accept': 'application/vnd.api+json',
-            'Content-Type': 'application/vnd.api+json'
-          }
-        }
-      );
+      // Check if this is a real Lemon Squeezy subscription or manually created
+      if (company.lemonsqueezy_customer_id && company.subscription_id) {
+        // This is a real Lemon Squeezy subscription - cancel via API
+        try {
+          const response = await axios.delete(
+            `https://api.lemonsqueezy.com/v1/subscriptions/${company.subscription_id}`,
+            {
+              headers: {
+                'Authorization': `Bearer ${process.env.LEMONSQUEEZY_API_KEY}`,
+                'Accept': 'application/vnd.api+json',
+                'Content-Type': 'application/vnd.api+json'
+              }
+            }
+          );
 
-      res.json({
-        success: true,
-        message: 'Subscription cancelled successfully'
-      });
+          res.json({
+            success: true,
+            message: 'Subscription cancelled successfully'
+          });
+        } catch (lsError) {
+          console.error('❌ Lemon Squeezy API error:', lsError.response?.status, lsError.response?.data);
+          return res.status(500).json({
+            success: false,
+            error: 'Failed to cancel subscription with payment provider'
+          });
+        }
+      } else {
+        // This is a manually created subscription - just update the database
+        const { error: updateError } = await supabase
+          .from('companies')
+          .update({
+            subscription_status: 'cancelled',
+            subscription_end_date: new Date().toISOString(),
+            subscription_id: null,
+            lemonsqueezy_customer_id: null
+          })
+          .eq('id', companyId);
+
+        if (updateError) {
+          console.error('❌ Database update error:', updateError);
+          return res.status(500).json({
+            success: false,
+            error: 'Failed to cancel subscription'
+          });
+        }
+
+        res.json({
+          success: true,
+          message: 'Subscription cancelled successfully'
+        });
+      }
 
     } catch (error) {
       console.error('❌ Error cancelling subscription:', error);
