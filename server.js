@@ -92,6 +92,12 @@ app.use(cors({
 // Logging middleware
 app.use(morgan('combined'));
 
+// Debug middleware to log all requests
+app.use((req, res, next) => {
+    console.log(`🌐 ${req.method} ${req.originalUrl} - Origin: ${req.headers.origin || 'No origin'}`);
+    next();
+});
+
 // Rate limiting
 app.use(limiter);
 

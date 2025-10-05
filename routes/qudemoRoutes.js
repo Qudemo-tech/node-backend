@@ -9,6 +9,12 @@ const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
+
+// Test route to verify endpoint is working (no auth required)
+router.get('/bulk-uploads-test', (req, res) => {
+  console.log('📊 ===== BULK UPLOADS TEST ROUTE HIT =====');
+  res.json({ success: true, message: 'Bulk uploads endpoint is working' });
+});
 const {
   getQudemos,
   getQudemo,
@@ -155,6 +161,259 @@ router.get('/test-data/:companyId', async (req, res) => {
 // Get all qudemos for a company
 router.get('/', authenticateToken, getQudemos);
 
+// Get bulk uploads history (MUST come before /:id route)
+router.get('/bulk-uploads', authenticateToken, async (req, res) => {
+  console.log('🎯 ===== BULK UPLOADS ROUTE HIT =====');
+  console.log('🎯 Request method:', req.method);
+  console.log('🎯 Request URL:', req.url);
+  console.log('🎯 Request path:', req.path);
+  console.log('🎯 Request originalUrl:', req.originalUrl);
+  
+  try {
+    const userId = req.user?.userId || req.user?.id;
+    console.log(`📊 ===== BULK UPLOADS REQUEST =====`);
+    console.log(`📊 User ID: ${userId}`);
+    console.log(`📊 Request headers:`, req.headers);
+
+    // Get user's companies
+    console.log(`📊 Fetching companies for user: ${userId}`);
+    const { data: companies, error: companiesError } = await supabase
+      .from('companies')
+      .select('id, name')
+      .eq('user_id', userId);
+
+    console.log(`📊 Companies query result:`, { companies, companiesError });
+
+    if (companiesError) {
+      console.error(`📊 Companies query error:`, companiesError);
+      return res.status(500).json({
+        success: false,
+        error: 'Database error fetching companies',
+        details: companiesError.message
+      });
+    }
+
+    if (!companies || companies.length === 0) {
+      console.log(`📊 No companies found for user: ${userId}`);
+      return res.status(404).json({
+        success: false,
+        error: 'No companies found for user'
+      });
+    }
+
+    const companyIds = companies.map(c => c.id);
+    console.log(`📊 Company IDs:`, companyIds);
+
+    // Get bulk uploads from qudemo_shares table grouped by created_at and file info
+    console.log(`📊 Fetching bulk uploads for company IDs:`, companyIds);
+    const { data: bulkUploads, error: bulkError } = await supabase
+      .from('qudemo_shares')
+      .select(`
+        id,
+        created_at,
+        client_sl_no,
+        client_name,
+        client_email,
+        client_company,
+        qudemo_id,
+        qudemos_new!inner(
+          id,
+          title,
+          company_id
+        )
+      `)
+      .in('company_id', companyIds)
+      .not('client_name', 'is', null)
+      .order('created_at', { ascending: false });
+
+    console.log(`📊 Bulk uploads query result:`, { bulkUploads, bulkError });
+    console.log(`📊 Number of bulk uploads found:`, bulkUploads?.length || 0);
+
+    if (bulkError) {
+      console.error('📊 Error fetching bulk uploads:', bulkError);
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to fetch bulk uploads',
+        details: bulkError.message
+      });
+    }
+
+    // Group by date and qudemo to create upload batches
+    console.log(`📊 Starting to group bulk uploads...`);
+    const uploadGroups = {};
+    bulkUploads?.forEach((share, index) => {
+      console.log(`📊 Processing share ${index + 1}:`, {
+        id: share.id,
+        client_name: share.client_name,
+        qudemo_id: share.qudemo_id,
+        created_at: share.created_at
+      });
+      
+      const dateKey = share.created_at.split('T')[0];
+      const key = `${share.qudemo_id}_${dateKey}`;
+      
+      if (!uploadGroups[key]) {
+        uploadGroups[key] = {
+          id: share.id,
+          original_filename: `bulk-links-${dateKey}.csv`,
+          file_name: `bulk-links-${dateKey}.csv`,
+          created_at: share.created_at,
+          qudemo_title: share.qudemos_new?.title || 'Unknown Demo',
+          qudemo_id: share.qudemo_id,
+          customer_count: 0,
+          customers: []
+        };
+        console.log(`📊 Created new upload group: ${key}`);
+      }
+      uploadGroups[key].customer_count++;
+      uploadGroups[key].customers.push({
+        sl_no: share.client_sl_no,
+        name: share.client_name,
+        email: share.client_email,
+        company: share.client_company
+      });
+    });
+
+    const uploadsList = Object.values(uploadGroups);
+    console.log(`📊 Upload groups created:`, Object.keys(uploadGroups));
+    console.log(`📊 Final uploads list:`, uploadsList);
+
+    console.log(`📊 Returning ${uploadsList.length} bulk uploads`);
+
+    res.json({
+      success: true,
+      data: uploadsList
+    });
+
+  } catch (error) {
+    console.error('❌ Error in bulk uploads:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error'
+    });
+  }
+});
+
+// Download bulk upload file
+router.get('/bulk-uploads/:uploadId/download', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user?.userId || req.user?.id;
+    const { uploadId } = req.params;
+    
+    console.log(`📥 Download request from user: ${userId} for upload: ${uploadId}`);
+
+    // Get user's companies
+    const { data: companies, error: companiesError } = await supabase
+      .from('companies')
+      .select('id, name')
+      .eq('user_id', userId);
+
+    if (companiesError || !companies || companies.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'No companies found'
+      });
+    }
+
+    const companyIds = companies.map(c => c.id);
+
+    // Get the bulk upload data
+    const { data: bulkUploads, error: bulkError } = await supabase
+      .from('qudemo_shares')
+      .select(`
+        id,
+        created_at,
+        client_sl_no,
+        client_name,
+        client_email,
+        client_company,
+        qudemo_id,
+        qudemos_new!inner(
+          id,
+          title,
+          company_id
+        )
+      `)
+      .in('company_id', companyIds)
+      .not('client_name', 'is', null)
+      .order('created_at', { ascending: false });
+
+    if (bulkError || !bulkUploads || bulkUploads.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Bulk upload not found'
+      });
+    }
+
+    // Group by date and qudemo to create upload batches
+    const uploadGroups = {};
+    bulkUploads?.forEach(share => {
+      const dateKey = share.created_at.split('T')[0];
+      const key = `${share.qudemo_id}_${dateKey}`;
+      if (!uploadGroups[key]) {
+        uploadGroups[key] = {
+          id: share.id,
+          original_filename: `bulk-links-${dateKey}.csv`,
+          file_name: `bulk-links-${dateKey}.csv`,
+          created_at: share.created_at,
+          qudemo_title: share.qudemos_new?.title || 'Unknown Demo',
+          qudemo_id: share.qudemo_id,
+          customer_count: 0,
+          customers: []
+        };
+      }
+      uploadGroups[key].customer_count++;
+      uploadGroups[key].customers.push({
+        sl_no: share.client_sl_no,
+        name: share.client_name,
+        email: share.client_email,
+        company: share.client_company
+      });
+    });
+
+    const uploadsList = Object.values(uploadGroups);
+    const targetUpload = uploadsList.find(upload => upload.id === uploadId);
+
+    if (!targetUpload) {
+      return res.status(404).json({
+        success: false,
+        error: 'Upload not found'
+      });
+    }
+
+    // Create CSV content
+    const csvHeaders = ['SL No', 'Client Name', 'Company Name', 'Email', 'Shared QuDemo'];
+    const csvRows = targetUpload.customers.map(customer => [
+      customer.sl_no || '',
+      customer.name || '',
+      customer.company || '',
+      customer.email || '',
+      `${req.protocol}://${req.get('host')}/share/${uploadId}` // Use server URL instead of window.location
+    ]);
+
+    const csvContent = [csvHeaders, ...csvRows]
+      .map(row => row.map(field => `"${field}"`).join(','))
+      .join('\n');
+
+    const buffer = Buffer.from(csvContent, 'utf8');
+
+    res.set({
+      'Content-Type': 'text/csv',
+      'Content-Disposition': `attachment; filename="${targetUpload.file_name}"`,
+      'Content-Length': buffer.length
+    });
+
+    res.send(buffer);
+
+  } catch (error) {
+    console.error('❌ Error downloading bulk upload:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error'
+    });
+  }
+});
+
 // Get single qudemo with all details
 router.get('/:id', authenticateToken, getQudemo);
 
@@ -235,7 +494,7 @@ router.post('/bulk-share', authenticateToken, async (req, res) => {
     console.log(`🔗 URL: ${req.url}`);
     console.log(`🔗 Body:`, req.body);
 
-    const { qudemoId, clientData } = req.body;
+        const { qudemoId, clientData } = req.body;
     const userId = req.user?.userId || req.user?.id;
 
     console.log(`🔗 QuDemo ID: ${qudemoId}`);
@@ -344,22 +603,22 @@ router.post('/bulk-share', authenticateToken, async (req, res) => {
         const expiresAt = new Date();
         expiresAt.setFullYear(expiresAt.getFullYear() + 1);
 
-        // Create share record with client information
-        const shareData = {
-          share_token: shareToken,
-          qudemo_id: qudemoId,
-          company_id: qudemo.company_id,
-          created_by: userId,
-          expires_at: expiresAt.toISOString(),
-          is_active: true,
-          view_count: 0,
-          access_count: 0,
-          // Client information
-          client_name: client.clientName,
-          client_company: client.companyName,
-          client_email: client.email,
-          client_sl_no: client.slNo
-        };
+            // Create share record with client information
+            const shareData = {
+              share_token: shareToken,
+              qudemo_id: qudemoId,
+              company_id: qudemo.company_id,
+              created_by: userId,
+              expires_at: expiresAt.toISOString(),
+              is_active: true,
+              view_count: 0,
+              access_count: 0,
+              // Client information
+              client_name: client.clientName,
+              client_company: client.companyName,
+              client_email: client.email,
+              client_sl_no: client.slNo
+            };
 
         const { data: shareResult, error: shareError } = await supabase
           .from('qudemo_shares')
@@ -1888,5 +2147,149 @@ router.post('/:id/generate-suggested-questions', authenticateToken, async (req, 
 });
 
 // Note: Removed GET endpoint for suggested questions since we generate them fresh on-demand
+
+
+// Download bulk upload file
+router.get('/bulk-uploads/:uploadId/download', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user?.userId || req.user?.id;
+    const { uploadId } = req.params;
+    
+    console.log(`📥 Download request from user: ${userId} for upload: ${uploadId}`);
+
+    // Get user's companies
+    const { data: companies, error: companiesError } = await supabase
+      .from('companies')
+      .select('id, name')
+      .eq('user_id', userId);
+
+    if (companiesError || !companies || companies.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'No companies found for user'
+      });
+    }
+
+    const companyIds = companies.map(c => c.id);
+
+    // Get the specific upload and all its customers
+    const { data: uploadData, error: uploadError } = await supabase
+      .from('qudemo_shares')
+      .select(`
+        id,
+        created_at,
+        client_sl_no,
+        client_name,
+        client_email,
+        client_company,
+        share_token,
+        qudemo_id,
+        qudemos_new!inner(
+          id,
+          title,
+          company_id
+        )
+      `)
+      .eq('id', uploadId)
+      .in('company_id', companyIds)
+      .single();
+
+    if (uploadError || !uploadData) {
+      return res.status(404).json({
+        success: false,
+        error: 'Upload not found or access denied'
+      });
+    }
+
+    // Get all customers for this upload (same qudemo and date)
+    const uploadDate = uploadData.created_at.split('T')[0];
+    const { data: allCustomers, error: customersError } = await supabase
+      .from('qudemo_shares')
+      .select(`
+        client_sl_no,
+        client_name,
+        client_email,
+        client_company,
+        share_token
+      `)
+      .eq('qudemo_id', uploadData.qudemo_id)
+      .gte('created_at', `${uploadDate}T00:00:00`)
+      .lte('created_at', `${uploadDate}T23:59:59`)
+      .in('company_id', companyIds)
+      .not('client_name', 'is', null)
+      .order('client_sl_no', { ascending: true });
+
+    if (customersError) {
+      console.error('❌ Error fetching customers:', customersError);
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to fetch customer data'
+      });
+    }
+
+    // Generate Excel file
+    const XLSX = require('xlsx');
+    
+    // Generate share URLs for each customer
+    let baseUrl;
+    if (process.env.NODE_ENV === 'production') {
+      baseUrl = process.env.FRONTEND_URL || 'https://qudemo.com';
+      if (baseUrl.includes('qu-demo.vercel.app') || baseUrl.includes('qudemo.vercel.app')) {
+        baseUrl = 'https://qudemo.com';
+      }
+    } else {
+      baseUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    }
+    baseUrl = baseUrl.replace(/\/$/, '');
+
+    // Prepare data for Excel
+    const excelData = allCustomers?.map((customer, index) => ({
+      'SL No': customer.client_sl_no || index + 1,
+      'Name': customer.client_name || '',
+      'Company': customer.client_company || '',
+      'Email': customer.client_email || '',
+      'Shared QuDemo': `${baseUrl}/share/${customer.share_token}`
+    })) || [];
+
+    // Create workbook and worksheet
+    const workbook = XLSX.utils.book_new();
+    const worksheet = XLSX.utils.json_to_sheet(excelData);
+
+    // Set column widths
+    worksheet['!cols'] = [
+      { width: 10 }, // SL No
+      { width: 20 }, // Name
+      { width: 25 }, // Company
+      { width: 30 }, // Email
+      { width: 50 }  // Shared QuDemo
+    ];
+
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Bulk Links');
+
+    // Generate buffer
+    const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+
+    // Set response headers
+    const fileName = `bulk-links-${uploadDate}.xlsx`;
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+    res.setHeader('Content-Length', buffer.length);
+
+    res.send(buffer);
+
+  } catch (error) {
+    console.error('❌ Error downloading bulk upload:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error'
+    });
+  }
+});
+
+// Log all registered routes for debugging
+console.log('🔍 Registered qudemo routes:');
+console.log('🔍 - GET /bulk-uploads-test (no auth)');
+console.log('🔍 - GET /bulk-uploads (with auth)');
+console.log('🔍 - GET /bulk-uploads/:uploadId/download (with auth)');
 
 module.exports = router; 
