@@ -335,6 +335,7 @@ const analyticsController = {
       console.log(`📊 Found ${companyIds.length} companies:`, companyIds);
 
       // Get all share links with client information and their interactions
+      // Include both bulk shares (with client info) and single links (without client info)
       const { data: shares, error: sharesError } = await supabase
         .from('qudemo_shares')
         .select(`
@@ -353,7 +354,6 @@ const analyticsController = {
           )
         `)
         .in('company_id', companyIds)
-        .not('client_name', 'is', null)
         .order('last_accessed_at', { ascending: false });
 
       if (sharesError) {
@@ -364,7 +364,7 @@ const analyticsController = {
         });
       }
 
-      console.log(`📊 Found ${shares?.length || 0} share records with client data`);
+      console.log(`📊 Found ${shares?.length || 0} share records (including both bulk shares and single links)`);
 
       // Get Q&A interactions for each share
       const interactions = [];
@@ -439,19 +439,23 @@ const analyticsController = {
           totalDuration = 60; // 1 minute minimum
         }
 
+        // Handle both bulk shares (with client info) and single links (without client info)
+        const isSingleLink = !share.client_name;
+        
         interactions.push({
           share_id: share.id,
           share_token: share.share_token,
-          client_name: share.client_name,
-          client_email: share.client_email,
-          client_company: share.client_company,
+          client_name: share.client_name || 'Anonymous User',
+          client_email: share.client_email || null,
+          client_company: share.client_company || 'Unknown Company',
           qudemo_title: share.qudemos_new?.title || 'Unknown Demo',
           qudemo_id: share.qudemo_id,
           question_count: questionCount,
           total_duration: totalDuration,
           access_count: share.access_count || 0,
           last_accessed_at: share.last_accessed_at,
-          questions: qaData || []
+          questions: qaData || [],
+          is_single_link: isSingleLink
         });
       }
 
@@ -660,7 +664,7 @@ module.exports = {
         data: interactions
       });
 
-    } catch (error) {
+  } catch (error) {
       console.error('❌ Error in getQudemoInteractions:', error);
       res.status(500).json({
         success: false,
@@ -668,4 +672,4 @@ module.exports = {
       });
     }
   }
-};
+}; 
