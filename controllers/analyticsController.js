@@ -517,4 +517,155 @@ function groupQuestionsIntoSessions(questions) {
   return sessions;
 }
 
-module.exports = analyticsController;
+module.exports = {
+  ...analyticsController,
+  
+  // Get interactions for a specific QuDemo
+  getQudemoInteractions: async (req, res) => {
+    try {
+      const userId = req.user?.userId || req.user?.id;
+      const { qudemoId } = req.params;
+      
+      console.log(`📊 QuDemo interactions request from user: ${userId} for QuDemo: ${qudemoId}`);
+
+      // Get user's companies
+      const { data: companies, error: companiesError } = await supabase
+        .from('companies')
+        .select('id, name')
+        .eq('user_id', userId);
+
+      if (companiesError || !companies || companies.length === 0) {
+        return res.status(404).json({
+          success: false,
+          error: 'No companies found for user'
+        });
+      }
+
+      const companyIds = companies.map(c => c.id);
+
+      // Verify user has access to this QuDemo
+      const { data: qudemo, error: qudemoError } = await supabase
+        .from('qudemos_new')
+        .select('id, title, company_id')
+        .eq('id', qudemoId)
+        .in('company_id', companyIds)
+        .single();
+
+      if (qudemoError || !qudemo) {
+        return res.status(404).json({
+          success: false,
+          error: 'QuDemo not found or access denied'
+        });
+      }
+
+      // Get all share links for this specific QuDemo
+      const { data: shares, error: sharesError } = await supabase
+        .from('qudemo_shares')
+        .select(`
+          id,
+          share_token,
+          client_name,
+          client_email,
+          client_company,
+          access_count,
+          last_accessed_at
+        `)
+        .eq('qudemo_id', qudemoId)
+        .eq('company_id', qudemo.company_id);
+
+      if (sharesError) {
+        console.error('❌ Error fetching shares:', sharesError);
+        return res.status(500).json({
+          success: false,
+          error: 'Failed to fetch QuDemo interactions'
+        });
+      }
+
+      console.log(`📊 Found ${shares?.length || 0} share records for QuDemo ${qudemoId}`);
+
+      // Get Q&A interactions for each share
+      const interactions = [];
+      for (const share of shares || []) {
+        // Get questions and answers for this share
+        const { data: qaData, error: qaError } = await supabase
+          .from('public_qa_interactions')
+          .select('question, answer, created_at')
+          .eq('share_token', share.share_token)
+          .order('created_at', { ascending: false });
+
+        if (qaError) {
+          console.error(`❌ Error fetching Q&A for share ${share.share_token}:`, qaError);
+        }
+
+        // Calculate total duration with session-based logic
+        const questionCount = qaData?.length || 0;
+        let totalDuration = 0;
+
+        if (qaData && qaData.length > 0) {
+          // Sort questions by creation time
+          const sortedQuestions = qaData.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+          
+          // Group questions into sessions (gap > 2 hours = new session)
+          const sessions = groupQuestionsIntoSessions(sortedQuestions);
+          
+          // Calculate duration for each session
+          sessions.forEach((session, sessionIndex) => {
+            const sessionQuestions = session.questions;
+            const sessionQuestionCount = sessionQuestions.length;
+            
+            // Calculate session duration
+            const sessionStart = new Date(session.startTime);
+            const sessionEnd = new Date(session.endTime);
+            const sessionDuration = Math.floor((sessionEnd - sessionStart) / 1000);
+            
+            // Add time for each question in this session
+            const questionTime = sessionQuestionCount * 45; // 45 seconds per question
+            
+            // Add demo viewing time (only for first session)
+            const demoViewingTime = sessionIndex === 0 ? Math.min(sessionDuration * 0.3, 300) : 0;
+            
+            // Calculate session total
+            const sessionTotal = Math.max(
+              sessionDuration + questionTime + demoViewingTime,
+              sessionQuestionCount * 30 // Minimum 30 seconds per question
+            );
+            
+            totalDuration += Math.min(sessionTotal, 1800); // Max 30 minutes per session
+          });
+        } else {
+          // No questions - assume minimum demo viewing time
+          totalDuration = 60; // 1 minute minimum
+        }
+
+        interactions.push({
+          share_id: share.id,
+          share_token: share.share_token,
+          client_name: share.client_name,
+          client_email: share.client_email,
+          client_company: share.client_company,
+          qudemo_title: qudemo.title,
+          qudemo_id: qudemo.id,
+          question_count: questionCount,
+          total_duration: totalDuration,
+          access_count: share.access_count || 0,
+          last_accessed_at: share.last_accessed_at,
+          questions: qaData || []
+        });
+      }
+
+      console.log(`📊 Returning ${interactions.length} interactions for QuDemo ${qudemoId}`);
+
+      res.json({
+        success: true,
+        data: interactions
+      });
+
+    } catch (error) {
+      console.error('❌ Error in getQudemoInteractions:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Internal server error'
+      });
+    }
+  }
+};

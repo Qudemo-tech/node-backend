@@ -20,4 +20,7 @@ router.get('/qudemos/:qudemoId', authenticateToken, analyticsController.getQudem
 // Get customer interactions data (Pro/Enterprise only - checked in controller)
 router.get('/customer-interactions', authenticateToken, analyticsController.getCustomerInteractions);
 
+// Get interactions for a specific QuDemo (Pro/Enterprise only - checked in controller)
+router.get('/qudemo-interactions/:qudemoId', authenticateToken, analyticsController.getQudemoInteractions);
+
 module.exports = router;
