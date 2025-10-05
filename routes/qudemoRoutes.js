@@ -227,7 +227,7 @@ router.post('/:id/share', (req, res, next) => {
   next();
 }, authenticateToken, generateShareLink);
 
-// Generate bulk share links for qudemo (Enterprise only)
+// Generate bulk share links for qudemo (Pro and Enterprise)
 router.post('/bulk-share', authenticateToken, async (req, res) => {
   try {
     console.log(`🔗 ===== BULK SHARE ROUTE HIT =====`);
@@ -238,10 +238,21 @@ router.post('/bulk-share', authenticateToken, async (req, res) => {
     const { qudemoId, clientData } = req.body;
     const userId = req.user?.userId || req.user?.id;
 
+    console.log(`🔗 QuDemo ID: ${qudemoId}`);
+    console.log(`🔗 Client data received:`, clientData);
+    console.log(`🔗 Number of clients: ${clientData?.length || 0}`);
+
     if (!qudemoId) {
       return res.status(400).json({
         success: false,
         error: 'QuDemo ID is required'
+      });
+    }
+
+    if (!clientData || !Array.isArray(clientData) || clientData.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Client data is required and must be a non-empty array'
       });
     }
 
@@ -261,15 +272,15 @@ router.post('/bulk-share', authenticateToken, async (req, res) => {
 
     const subscriptionPlan = userCompany.subscription_plan || 'free';
     const subscriptionStatus = userCompany.subscription_status || 'active';
-    const isEnterprise = subscriptionPlan === 'enterprise' && ['active', 'trialing', 'on_trial'].includes(subscriptionStatus);
+    const isPro = ['pro', 'enterprise'].includes(subscriptionPlan) && ['active', 'trialing', 'on_trial'].includes(subscriptionStatus);
 
-    if (!isEnterprise) {
+    if (!isPro) {
       return res.status(403).json({
         success: false,
-        error: 'Bulk Share feature requires Enterprise plan',
+        error: 'Bulk Share feature requires Pro or Enterprise plan',
         requiresUpgrade: true,
         currentPlan: subscriptionPlan,
-        requiredPlan: 'enterprise'
+        requiredPlan: 'pro'
       });
     }
 
@@ -318,8 +329,12 @@ router.post('/bulk-share', authenticateToken, async (req, res) => {
     const results = [];
     const errors = [];
 
+    console.log(`🔗 Starting to process ${clientData.length} clients...`);
+
     for (let i = 0; i < clientData.length; i++) {
       const client = clientData[i];
+      
+      console.log(`🔗 Processing client ${i + 1}/${clientData.length}:`, client);
       
       try {
         // Generate unique share token
@@ -401,6 +416,8 @@ router.post('/bulk-share', authenticateToken, async (req, res) => {
     }
 
     console.log(`📊 Bulk share results: ${results.length} successful, ${errors.length} errors`);
+    console.log(`📊 Results array:`, results);
+    console.log(`📊 Errors array:`, errors);
 
     // Update qudemo as shared if not already
     if (results.length > 0) {
@@ -414,7 +431,7 @@ router.post('/bulk-share', authenticateToken, async (req, res) => {
         .eq('id', qudemoId);
     }
 
-    res.json({
+    const responseData = {
       success: true,
       data: results,
       errors: errors,
@@ -425,7 +442,11 @@ router.post('/bulk-share', authenticateToken, async (req, res) => {
         qudemo_id: qudemoId,
         qudemo_title: qudemo.title
       }
-    });
+    };
+
+    console.log(`📊 Final response data:`, responseData);
+
+    res.json(responseData);
 
   } catch (error) {
     console.error('❌ Error in bulk share:', error);
