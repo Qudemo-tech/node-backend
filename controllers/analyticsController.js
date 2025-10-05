@@ -372,7 +372,7 @@ const analyticsController = {
         // Get questions and answers for this share
         const { data: qaData, error: qaError } = await supabase
           .from('public_qa_interactions')
-          .select('question, answer, created_at')
+          .select('question, answer, created_at, start_timestamp, end_timestamp, formatted_timestamp, video_url')
           .eq('share_token', share.share_token)
           .order('created_at', { ascending: false });
 
@@ -593,7 +593,7 @@ module.exports = {
         // Get questions and answers for this share
         const { data: qaData, error: qaError } = await supabase
           .from('public_qa_interactions')
-          .select('question, answer, created_at')
+          .select('question, answer, created_at, start_timestamp, end_timestamp, formatted_timestamp, video_url')
           .eq('share_token', share.share_token)
           .order('created_at', { ascending: false });
 
