@@ -71,6 +71,9 @@ class PublicQAController {
                 answerLength: answer.length
             });
 
+            // Update session tracking in qudemo_shares table
+            await this.updateSessionTracking(shareToken);
+
             // Insert into public_qa_interactions table
             const { data: insertedData, error } = await supabase
                 .from('public_qa_interactions')
@@ -327,6 +330,45 @@ class PublicQAController {
         } catch (error) {
             console.error('❌ Public Q&A cleanup error:', error);
             throw error;
+        }
+    }
+
+    /**
+     * Update session tracking for share token
+     * @param {string} shareToken - Share token
+     */
+    async updateSessionTracking(shareToken) {
+        try {
+            // Get current share record
+            const { data: share, error: shareError } = await supabase
+                .from('qudemo_shares')
+                .select('last_accessed_at')
+                .eq('share_token', shareToken)
+                .single();
+
+            if (shareError || !share) {
+                console.error('❌ Error fetching share for session tracking:', shareError);
+                return;
+            }
+
+            const currentTime = new Date();
+            
+            // Update last accessed time
+            const { error: updateError } = await supabase
+                .from('qudemo_shares')
+                .update({
+                    last_accessed_at: currentTime.toISOString()
+                })
+                .eq('share_token', shareToken);
+
+            if (updateError) {
+                console.error('❌ Error updating session tracking:', updateError);
+            } else {
+                console.log(`✅ Session tracking updated for ${shareToken}`);
+            }
+
+        } catch (error) {
+            console.error('❌ Error in updateSessionTracking:', error);
         }
     }
 }

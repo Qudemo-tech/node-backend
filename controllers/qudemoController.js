@@ -1964,13 +1964,15 @@ const getSharedQudemo = async (req, res) => {
 
     // Update access count in shares table
     const newAccessCount = (share.access_count || 0) + 1;
+    const currentTime = new Date().toISOString();
+    
     console.log(`🔍 Updating access count for share token ${shareToken}: ${share.access_count || 0} → ${newAccessCount}`);
     
     const { error: updateError } = await supabase
       .from('qudemo_shares')
       .update({
         access_count: newAccessCount,
-        last_accessed_at: new Date().toISOString()
+        last_accessed_at: currentTime
       })
       .eq('share_token', shareToken);
 

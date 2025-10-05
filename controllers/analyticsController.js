@@ -310,7 +310,211 @@ const analyticsController = {
         error: 'Internal server error'
       });
     }
+  },
+
+  // Get customer interactions data
+  getCustomerInteractions: async (req, res) => {
+    try {
+      const userId = req.user?.userId || req.user?.id;
+      console.log(`📊 Customer interactions request from user: ${userId}`);
+
+      // Get user's companies
+      const { data: companies, error: companiesError } = await supabase
+        .from('companies')
+        .select('id, name')
+        .eq('user_id', userId);
+
+      if (companiesError || !companies || companies.length === 0) {
+        return res.status(404).json({
+          success: false,
+          error: 'No companies found for user'
+        });
+      }
+
+      const companyIds = companies.map(c => c.id);
+      console.log(`📊 Found ${companyIds.length} companies:`, companyIds);
+
+      // Get all share links with client information and their interactions
+      const { data: shares, error: sharesError } = await supabase
+        .from('qudemo_shares')
+        .select(`
+          id,
+          share_token,
+          client_name,
+          client_email,
+          client_company,
+          access_count,
+          last_accessed_at,
+          qudemo_id,
+          qudemos_new!inner(
+            id,
+            title,
+            company_id
+          )
+        `)
+        .in('company_id', companyIds)
+        .not('client_name', 'is', null)
+        .order('last_accessed_at', { ascending: false });
+
+      if (sharesError) {
+        console.error('❌ Error fetching shares:', sharesError);
+        return res.status(500).json({
+          success: false,
+          error: 'Failed to fetch customer interactions'
+        });
+      }
+
+      console.log(`📊 Found ${shares?.length || 0} share records with client data`);
+
+      // Get Q&A interactions for each share
+      const interactions = [];
+      for (const share of shares || []) {
+        // Get questions and answers for this share
+        const { data: qaData, error: qaError } = await supabase
+          .from('public_qa_interactions')
+          .select('question, answer, created_at')
+          .eq('share_token', share.share_token)
+          .order('created_at', { ascending: false });
+
+        if (qaError) {
+          console.error(`❌ Error fetching Q&A for share ${share.share_token}:`, qaError);
+        }
+
+        // Calculate total duration with session-based logic
+        const questionCount = qaData?.length || 0;
+        let totalDuration = 0;
+
+        if (qaData && qaData.length > 0) {
+          // Sort questions by creation time
+          const sortedQuestions = qaData.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+          
+          // Group questions into sessions (gap > 2 hours = new session)
+          const sessions = groupQuestionsIntoSessions(sortedQuestions);
+          
+          console.log(`📊 Found ${sessions.length} sessions for ${share.share_token}:`, 
+            sessions.map(s => ({ questionCount: s.questions.length, startTime: s.startTime, endTime: s.endTime }))
+          );
+          
+          // Calculate duration for each session
+          sessions.forEach((session, sessionIndex) => {
+            const sessionQuestions = session.questions;
+            const sessionQuestionCount = sessionQuestions.length;
+            
+            // Calculate session duration
+            const sessionStart = new Date(session.startTime);
+            const sessionEnd = new Date(session.endTime);
+            const sessionDuration = Math.floor((sessionEnd - sessionStart) / 1000);
+            
+            // Add time for each question in this session
+            const questionTime = sessionQuestionCount * 45; // 45 seconds per question
+            
+            // Add demo viewing time (only for first session)
+            const demoViewingTime = sessionIndex === 0 ? Math.min(sessionDuration * 0.3, 300) : 0;
+            
+            // Calculate session total
+            const sessionTotal = Math.max(
+              sessionDuration + questionTime + demoViewingTime,
+              sessionQuestionCount * 30 // Minimum 30 seconds per question
+            );
+            
+            totalDuration += Math.min(sessionTotal, 1800); // Max 30 minutes per session
+            
+            console.log(`📊 Session ${sessionIndex + 1} calculation:`, {
+              questionCount: sessionQuestionCount,
+              sessionDuration,
+              questionTime,
+              demoViewingTime,
+              sessionTotal: Math.floor(sessionTotal),
+              totalDurationSoFar: Math.floor(totalDuration)
+            });
+          });
+          
+          console.log(`📊 Final duration calculation for ${share.share_token}:`, {
+            totalQuestions: questionCount,
+            totalSessions: sessions.length,
+            totalDuration: Math.floor(totalDuration)
+          });
+        } else {
+          // No questions - assume minimum demo viewing time
+          totalDuration = 60; // 1 minute minimum
+        }
+
+        interactions.push({
+          share_id: share.id,
+          share_token: share.share_token,
+          client_name: share.client_name,
+          client_email: share.client_email,
+          client_company: share.client_company,
+          qudemo_title: share.qudemos_new?.title || 'Unknown Demo',
+          qudemo_id: share.qudemo_id,
+          question_count: questionCount,
+          total_duration: totalDuration,
+          access_count: share.access_count || 0,
+          last_accessed_at: share.last_accessed_at,
+          questions: qaData || []
+        });
+      }
+
+      console.log(`📊 Returning ${interactions.length} customer interactions`);
+
+      res.json({
+        success: true,
+        data: interactions
+      });
+
+    } catch (error) {
+      console.error('❌ Error in getCustomerInteractions:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Internal server error'
+      });
+    }
   }
 };
+
+/**
+ * Group questions into sessions based on time gaps
+ * @param {Array} questions - Sorted questions array
+ * @returns {Array} - Array of session objects
+ */
+function groupQuestionsIntoSessions(questions) {
+  if (!questions || questions.length === 0) return [];
+
+  const sessions = [];
+  const SESSION_GAP_HOURS = 2; // 2 hours gap = new session
+  const SESSION_GAP_MS = SESSION_GAP_HOURS * 60 * 60 * 1000;
+
+  let currentSession = {
+    questions: [questions[0]],
+    startTime: questions[0].created_at,
+    endTime: questions[0].created_at
+  };
+
+  for (let i = 1; i < questions.length; i++) {
+    const currentQuestion = questions[i];
+    const previousQuestion = questions[i - 1];
+    
+    const timeDiff = new Date(currentQuestion.created_at) - new Date(previousQuestion.created_at);
+    
+    if (timeDiff > SESSION_GAP_MS) {
+      // Gap is too large, start new session
+      sessions.push(currentSession);
+      currentSession = {
+        questions: [currentQuestion],
+        startTime: currentQuestion.created_at,
+        endTime: currentQuestion.created_at
+      };
+    } else {
+      // Same session, add question
+      currentSession.questions.push(currentQuestion);
+      currentSession.endTime = currentQuestion.created_at;
+    }
+  }
+
+  // Add the last session
+  sessions.push(currentSession);
+
+  return sessions;
+}
 
 module.exports = analyticsController;
