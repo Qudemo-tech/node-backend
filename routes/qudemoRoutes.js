@@ -216,6 +216,8 @@ router.get('/bulk-uploads', authenticateToken, async (req, res) => {
         client_email,
         client_company,
         qudemo_id,
+        operation_type,
+        operation_id,
         qudemos_new!inner(
           id,
           title,
@@ -241,37 +243,66 @@ router.get('/bulk-uploads', authenticateToken, async (req, res) => {
     // Group by date and qudemo to create upload batches
     console.log(`📊 Starting to group bulk uploads...`);
     const uploadGroups = {};
+    
+    // First, group by operation_id for records that have it, or by a combination of factors for legacy records
+    const operationGroups = {};
     bulkUploads?.forEach((share, index) => {
       console.log(`📊 Processing share ${index + 1}:`, {
         id: share.id,
         client_name: share.client_name,
         qudemo_id: share.qudemo_id,
-        created_at: share.created_at
+        created_at: share.created_at,
+        operation_id: share.operation_id,
+        operation_type: share.operation_type
       });
       
-      const dateKey = share.created_at.split('T')[0];
-      const key = `${share.qudemo_id}_${dateKey}`;
-      
-      if (!uploadGroups[key]) {
-        uploadGroups[key] = {
-          id: share.id,
-          original_filename: `bulk-links-${dateKey}.csv`,
-          file_name: `bulk-links-${dateKey}.csv`,
-          created_at: share.created_at,
-          qudemo_title: share.qudemos_new?.title || 'Unknown Demo',
-          qudemo_id: share.qudemo_id,
-          customer_count: 0,
-          customers: []
-        };
-        console.log(`📊 Created new upload group: ${key}`);
+      let groupKey;
+      if (share.operation_id) {
+        // New records with operation_id - group by operation_id
+        groupKey = share.operation_id;
+      } else {
+        // Legacy records without operation_id - group by qudemo_id + date + operation_type + first 10 minutes
+        const dateKey = share.created_at.split('T')[0];
+        const operationType = share.operation_type || 'unknown';
+        const timeKey = share.created_at.split('T')[1].substring(0, 10); // HH:MM:SS -> HH:MM
+        groupKey = `${share.qudemo_id}_${dateKey}_${operationType}_${timeKey}`;
       }
-      uploadGroups[key].customer_count++;
-      uploadGroups[key].customers.push({
-        sl_no: share.client_sl_no,
-        name: share.client_name,
-        email: share.client_email,
-        company: share.client_company
-      });
+      
+      if (!operationGroups[groupKey]) {
+        operationGroups[groupKey] = [];
+      }
+      operationGroups[groupKey].push(share);
+    });
+    
+    // Now create upload groups from the operation groups
+    Object.entries(operationGroups).forEach(([groupKey, shares]) => {
+      const firstShare = shares[0];
+      const dateKey = firstShare.created_at.split('T')[0];
+      const operationType = firstShare.operation_type || 'unknown';
+      const qudemoTitle = (firstShare.qudemos_new?.title || 'Unknown_Demo').replace(/[^a-zA-Z0-9]/g, '_');
+      const operationLabel = operationType === 'few_links' ? 'Few_Links' : 'Bulk_Upload';
+      
+      const uploadKey = `${firstShare.qudemo_id}_${dateKey}_${operationType}_${groupKey}`;
+      
+      uploadGroups[uploadKey] = {
+        id: firstShare.id,
+        original_filename: `${operationLabel}_${qudemoTitle}_${dateKey}.csv`,
+        file_name: `${operationLabel}_${qudemoTitle}_${dateKey}.csv`,
+        created_at: firstShare.created_at,
+        qudemo_title: firstShare.qudemos_new?.title || 'Unknown Demo',
+        qudemo_id: firstShare.qudemo_id,
+        operation_type: operationType,
+        customer_count: shares.length,
+        customers: shares.map(share => ({
+          sl_no: share.client_sl_no,
+          name: share.client_name,
+          email: share.client_email,
+          company: share.client_company,
+          share_token: share.share_token
+        }))
+      };
+      
+      console.log(`📊 Created upload group: ${uploadKey} with ${shares.length} customers`);
     });
 
     const uploadsList = Object.values(uploadGroups);
@@ -322,12 +353,15 @@ router.get('/bulk-uploads/:uploadId/download', authenticateToken, async (req, re
       .from('qudemo_shares')
       .select(`
         id,
+        share_token,
         created_at,
         client_sl_no,
         client_name,
         client_email,
         client_company,
         qudemo_id,
+        operation_type,
+        operation_id,
         qudemos_new!inner(
           id,
           title,
@@ -347,28 +381,55 @@ router.get('/bulk-uploads/:uploadId/download', authenticateToken, async (req, re
 
     // Group by date and qudemo to create upload batches
     const uploadGroups = {};
+    
+    // First, group by operation_id for records that have it, or by a combination of factors for legacy records
+    const operationGroups = {};
     bulkUploads?.forEach(share => {
-      const dateKey = share.created_at.split('T')[0];
-      const key = `${share.qudemo_id}_${dateKey}`;
-      if (!uploadGroups[key]) {
-        uploadGroups[key] = {
-          id: share.id,
-          original_filename: `bulk-links-${dateKey}.csv`,
-          file_name: `bulk-links-${dateKey}.csv`,
-          created_at: share.created_at,
-          qudemo_title: share.qudemos_new?.title || 'Unknown Demo',
-          qudemo_id: share.qudemo_id,
-          customer_count: 0,
-          customers: []
-        };
+      let groupKey;
+      if (share.operation_id) {
+        // New records with operation_id - group by operation_id
+        groupKey = share.operation_id;
+      } else {
+        // Legacy records without operation_id - group by qudemo_id + date + operation_type + first 10 minutes
+        const dateKey = share.created_at.split('T')[0];
+        const operationType = share.operation_type || 'unknown';
+        const timeKey = share.created_at.split('T')[1].substring(0, 10); // HH:MM:SS -> HH:MM
+        groupKey = `${share.qudemo_id}_${dateKey}_${operationType}_${timeKey}`;
       }
-      uploadGroups[key].customer_count++;
-      uploadGroups[key].customers.push({
-        sl_no: share.client_sl_no,
-        name: share.client_name,
-        email: share.client_email,
-        company: share.client_company
-      });
+      
+      if (!operationGroups[groupKey]) {
+        operationGroups[groupKey] = [];
+      }
+      operationGroups[groupKey].push(share);
+    });
+    
+    // Now create upload groups from the operation groups
+    Object.entries(operationGroups).forEach(([groupKey, shares]) => {
+      const firstShare = shares[0];
+      const dateKey = firstShare.created_at.split('T')[0];
+      const operationType = firstShare.operation_type || 'unknown';
+      const qudemoTitle = (firstShare.qudemos_new?.title || 'Unknown_Demo').replace(/[^a-zA-Z0-9]/g, '_');
+      const operationLabel = operationType === 'few_links' ? 'Few_Links' : 'Bulk_Upload';
+      
+      const key = `${firstShare.qudemo_id}_${dateKey}_${operationType}_${groupKey}`;
+      
+      uploadGroups[key] = {
+        id: firstShare.id,
+        original_filename: `${operationLabel}_${qudemoTitle}_${dateKey}.csv`,
+        file_name: `${operationLabel}_${qudemoTitle}_${dateKey}.csv`,
+        created_at: firstShare.created_at,
+        qudemo_title: firstShare.qudemos_new?.title || 'Unknown Demo',
+        qudemo_id: firstShare.qudemo_id,
+        operation_type: operationType,
+        customer_count: shares.length,
+        customers: shares.map(share => ({
+          sl_no: share.client_sl_no,
+          name: share.client_name,
+          email: share.client_email,
+          company: share.client_company,
+          share_token: share.share_token
+        }))
+      };
     });
 
     const uploadsList = Object.values(uploadGroups);
@@ -383,12 +444,25 @@ router.get('/bulk-uploads/:uploadId/download', authenticateToken, async (req, re
 
     // Create CSV content
     const csvHeaders = ['SL No', 'Client Name', 'Company Name', 'Email', 'Shared QuDemo'];
+    
+    // Get base URL for share links
+    let baseUrl;
+    if (process.env.NODE_ENV === 'production') {
+      baseUrl = process.env.FRONTEND_URL || 'https://qudemo.com';
+      if (baseUrl.includes('qu-demo.vercel.app') || baseUrl.includes('qudemo.vercel.app')) {
+        baseUrl = 'https://qudemo.com';
+      }
+    } else {
+      baseUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    }
+    baseUrl = baseUrl.replace(/\/$/, ''); // Remove trailing slash
+    
     const csvRows = targetUpload.customers.map(customer => [
       customer.sl_no || '',
       customer.name || '',
       customer.company || '',
       customer.email || '',
-      `${req.protocol}://${req.get('host')}/share/${uploadId}` // Use server URL instead of window.location
+      `${baseUrl}/share/${customer.share_token}` // Use actual share token
     ]);
 
     const csvContent = [csvHeaders, ...csvRows]
@@ -397,9 +471,15 @@ router.get('/bulk-uploads/:uploadId/download', authenticateToken, async (req, re
 
     const buffer = Buffer.from(csvContent, 'utf8');
 
+    // Generate filename with operation type, QuDemo title and date
+    const dateStr = targetUpload.created_at.split('T')[0];
+    const qudemoTitle = targetUpload.qudemo_title.replace(/[^a-zA-Z0-9]/g, '_');
+    const operationLabel = targetUpload.operation_type === 'few_links' ? 'Few_Links' : 'Bulk_Upload';
+    const filename = `${operationLabel}_${qudemoTitle}_${dateStr}.csv`;
+    
     res.set({
       'Content-Type': 'text/csv',
-      'Content-Disposition': `attachment; filename="${targetUpload.file_name}"`,
+      'Content-Disposition': `attachment; filename="${filename}"`,
       'Content-Length': buffer.length
     });
 
@@ -494,8 +574,11 @@ router.post('/bulk-share', authenticateToken, async (req, res) => {
     console.log(`🔗 URL: ${req.url}`);
     console.log(`🔗 Body:`, req.body);
 
-        const { qudemoId, clientData } = req.body;
+        const { qudemoId, clientData, operationSource } = req.body;
     const userId = req.user?.userId || req.user?.id;
+    
+    // Generate a unique operation ID for this bulk share operation
+    const operationId = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
     console.log(`🔗 QuDemo ID: ${qudemoId}`);
     console.log(`🔗 Client data received:`, clientData);
@@ -617,7 +700,11 @@ router.post('/bulk-share', authenticateToken, async (req, res) => {
               client_name: client.clientName,
               client_company: client.companyName,
               client_email: client.email,
-              client_sl_no: client.slNo
+              client_sl_no: client.slNo,
+              // Operation type to differentiate between "Few Links" and "Bulk Upload"
+              operation_type: operationSource === 'bulk_upload' ? 'bulk_upload' : 'few_links',
+              // Unique operation ID to separate individual operations
+              operation_id: operationId
             };
 
         const { data: shareResult, error: shareError } = await supabase
@@ -2286,10 +2373,145 @@ router.get('/bulk-uploads/:uploadId/download', authenticateToken, async (req, re
   }
 });
 
+// Delete bulk upload operation and all associated shared links
+router.delete('/bulk-uploads/:uploadId', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user?.userId || req.user?.id;
+    const { uploadId } = req.params;
+    
+    console.log(`🗑️ Delete request from user: ${userId} for upload: ${uploadId}`);
+
+    // Get user's companies
+    const { data: companies, error: companiesError } = await supabase
+      .from('companies')
+      .select('id, name')
+      .eq('user_id', userId);
+
+    if (companiesError || !companies || companies.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'No companies found'
+      });
+    }
+
+    const companyIds = companies.map(c => c.id);
+
+    // Get the bulk upload data to find the operation
+    const { data: bulkUploads, error: bulkError } = await supabase
+      .from('qudemo_shares')
+      .select(`
+        id,
+        operation_id,
+        created_at,
+        qudemo_id,
+        operation_type,
+        qudemos_new!inner(
+          id,
+          title,
+          company_id
+        )
+      `)
+      .in('company_id', companyIds)
+      .not('client_name', 'is', null)
+      .order('created_at', { ascending: false });
+
+    if (bulkError || !bulkUploads || bulkUploads.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Bulk upload not found'
+      });
+    }
+
+    // Group by operation (same logic as bulk-uploads endpoint)
+    const operationGroups = {};
+    bulkUploads?.forEach(share => {
+      let groupKey;
+      if (share.operation_id) {
+        groupKey = share.operation_id;
+      } else {
+        const dateKey = share.created_at.split('T')[0];
+        const operationType = share.operation_type || 'unknown';
+        const timeKey = share.created_at.split('T')[1].substring(0, 10);
+        groupKey = `${share.qudemo_id}_${dateKey}_${operationType}_${timeKey}`;
+      }
+      
+      if (!operationGroups[groupKey]) {
+        operationGroups[groupKey] = [];
+      }
+      operationGroups[groupKey].push(share);
+    });
+
+    // Find the target operation
+    const uploadGroups = {};
+    Object.entries(operationGroups).forEach(([groupKey, shares]) => {
+      const firstShare = shares[0];
+      const dateKey = firstShare.created_at.split('T')[0];
+      const operationType = firstShare.operation_type || 'unknown';
+      const key = `${firstShare.qudemo_id}_${dateKey}_${operationType}_${groupKey}`;
+      
+      uploadGroups[key] = {
+        id: firstShare.id,
+        operation_id: firstShare.operation_id,
+        created_at: firstShare.created_at,
+        qudemo_id: firstShare.qudemo_id,
+        operation_type: operationType,
+        customer_count: shares.length,
+        all_share_ids: shares.map(share => share.id)
+      };
+    });
+
+    const uploadsList = Object.values(uploadGroups);
+    const targetUpload = uploadsList.find(upload => upload.id === uploadId);
+
+    if (!targetUpload) {
+      return res.status(404).json({
+        success: false,
+        error: 'Upload operation not found'
+      });
+    }
+
+    console.log(`🗑️ Found operation to delete:`, targetUpload);
+    console.log(`🗑️ Will delete ${targetUpload.all_share_ids.length} shared links`);
+
+    // Delete all shared links from this operation
+    const { error: deleteError } = await supabase
+      .from('qudemo_shares')
+      .delete()
+      .in('id', targetUpload.all_share_ids);
+
+    if (deleteError) {
+      console.error('🗑️ Error deleting shared links:', deleteError);
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to delete shared links',
+        details: deleteError.message
+      });
+    }
+
+    console.log(`🗑️ Successfully deleted ${targetUpload.all_share_ids.length} shared links`);
+
+    res.json({
+      success: true,
+      message: `Successfully deleted bulk upload operation with ${targetUpload.customer_count} customers`,
+      deleted_count: targetUpload.all_share_ids.length,
+      operation_type: targetUpload.operation_type
+    });
+
+  } catch (error) {
+    console.error('🗑️ Error deleting bulk upload:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+      details: error.message
+    });
+  }
+});
+
 // Log all registered routes for debugging
 console.log('🔍 Registered qudemo routes:');
 console.log('🔍 - GET /bulk-uploads-test (no auth)');
 console.log('🔍 - GET /bulk-uploads (with auth)');
 console.log('🔍 - GET /bulk-uploads/:uploadId/download (with auth)');
+console.log('🔍 - DELETE /bulk-uploads/:uploadId (with auth)');
 
 module.exports = router; 
