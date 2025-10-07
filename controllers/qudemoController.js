@@ -327,6 +327,55 @@ const deleteQudemoCompletely = async (qudemoId) => {
     console.log(`🗑️ Hard deleting qudemo ${qudemoId} and cleaning up related data...`);
     
     // Delete in order to respect foreign key constraints
+    // 1. Delete all shared links and their associated data first
+    const { error: sharesError } = await supabase
+      .from('qudemo_shares')
+      .delete()
+      .eq('qudemo_id', qudemoId);
+    
+    if (sharesError) {
+      console.error(`❌ Error deleting shares for qudemo ${qudemoId}:`, sharesError);
+    } else {
+      console.log(`✅ Deleted all shared links for qudemo ${qudemoId}`);
+    }
+    
+    // 2. Delete all public Q&A interactions
+    const { error: publicQAError } = await supabase
+      .from('public_qa_interactions')
+      .delete()
+      .eq('qudemo_id', qudemoId);
+    
+    if (publicQAError) {
+      console.error(`❌ Error deleting public Q&A interactions for qudemo ${qudemoId}:`, publicQAError);
+    } else {
+      console.log(`✅ Deleted all public Q&A interactions for qudemo ${qudemoId}`);
+    }
+    
+    // 3. Delete all authenticated Q&A interactions
+    const { error: authQAError } = await supabase
+      .from('authenticated_qa_interactions')
+      .delete()
+      .eq('qudemo_id', qudemoId);
+    
+    if (authQAError) {
+      console.error(`❌ Error deleting authenticated Q&A interactions for qudemo ${qudemoId}:`, authQAError);
+    } else {
+      console.log(`✅ Deleted all authenticated Q&A interactions for qudemo ${qudemoId}`);
+    }
+    
+    // 4. Delete all qudemo interactions (legacy table)
+    const { error: interactionsError } = await supabase
+      .from('qudemo_interactions')
+      .delete()
+      .eq('qudemo_id', qudemoId);
+    
+    if (interactionsError) {
+      console.error(`❌ Error deleting qudemo interactions for qudemo ${qudemoId}:`, interactionsError);
+    } else {
+      console.log(`✅ Deleted all qudemo interactions for qudemo ${qudemoId}`);
+    }
+    
+    // 5. Delete videos
     const { error: videosError } = await supabase
       .from('qudemo_videos')
       .delete()
@@ -334,8 +383,11 @@ const deleteQudemoCompletely = async (qudemoId) => {
     
     if (videosError) {
       console.error(`❌ Error deleting videos for qudemo ${qudemoId}:`, videosError);
+    } else {
+      console.log(`✅ Deleted all videos for qudemo ${qudemoId}`);
     }
     
+    // 6. Delete knowledge sources
     const { error: knowledgeError } = await supabase
       .from('qudemo_knowledge_sources')
       .delete()
@@ -343,8 +395,35 @@ const deleteQudemoCompletely = async (qudemoId) => {
     
     if (knowledgeError) {
       console.error(`❌ Error deleting knowledge sources for qudemo ${qudemoId}:`, knowledgeError);
+    } else {
+      console.log(`✅ Deleted all knowledge sources for qudemo ${qudemoId}`);
     }
     
+    // 7. Delete documents
+    const { error: documentsError } = await supabase
+      .from('qudemo_documents')
+      .delete()
+      .eq('qudemo_id', qudemoId);
+    
+    if (documentsError) {
+      console.error(`❌ Error deleting documents for qudemo ${qudemoId}:`, documentsError);
+    } else {
+      console.log(`✅ Deleted all documents for qudemo ${qudemoId}`);
+    }
+    
+    // 8. Delete access logs
+    const { error: accessLogsError } = await supabase
+      .from('qudemo_access_logs')
+      .delete()
+      .eq('qudemo_id', qudemoId);
+    
+    if (accessLogsError) {
+      console.error(`❌ Error deleting access logs for qudemo ${qudemoId}:`, accessLogsError);
+    } else {
+      console.log(`✅ Deleted all access logs for qudemo ${qudemoId}`);
+    }
+    
+    // 9. Delete analytics
     const { error: analyticsError } = await supabase
       .from('qudemo_analytics')
       .delete()
@@ -352,6 +431,8 @@ const deleteQudemoCompletely = async (qudemoId) => {
     
     if (analyticsError) {
       console.error(`❌ Error deleting analytics for qudemo ${qudemoId}:`, analyticsError);
+    } else {
+      console.log(`✅ Deleted all analytics for qudemo ${qudemoId}`);
     }
     
     // Hard delete: completely remove the qudemo from database
@@ -1036,7 +1117,46 @@ const deleteQudemo = async (req, res) => {
       .select('id')
       .eq('qudemo_id', id);
 
-    console.log(`📊 Associated data counts - Videos: ${videos?.length || 0}, Knowledge Sources: ${knowledgeSources?.length || 0}, Analytics: ${analytics?.length || 0}`);
+    const { data: shares, error: sharesError } = await supabase
+      .from('qudemo_shares')
+      .select('id')
+      .eq('qudemo_id', id);
+
+    const { data: publicQA, error: publicQAError } = await supabase
+      .from('public_qa_interactions')
+      .select('id')
+      .eq('qudemo_id', id);
+
+    const { data: authQA, error: authQAError } = await supabase
+      .from('authenticated_qa_interactions')
+      .select('id')
+      .eq('qudemo_id', id);
+
+    const { data: interactions, error: interactionsError } = await supabase
+      .from('qudemo_interactions')
+      .select('id')
+      .eq('qudemo_id', id);
+
+    const { data: documents, error: documentsError } = await supabase
+      .from('qudemo_documents')
+      .select('id')
+      .eq('qudemo_id', id);
+
+    const { data: accessLogs, error: accessLogsError } = await supabase
+      .from('qudemo_access_logs')
+      .select('id')
+      .eq('qudemo_id', id);
+
+    console.log(`📊 Associated data counts for QuDemo ${id}:`);
+    console.log(`  - Videos: ${videos?.length || 0}`);
+    console.log(`  - Knowledge Sources: ${knowledgeSources?.length || 0}`);
+    console.log(`  - Documents: ${documents?.length || 0}`);
+    console.log(`  - Analytics: ${analytics?.length || 0}`);
+    console.log(`  - Access Logs: ${accessLogs?.length || 0}`);
+    console.log(`  - Shared Links: ${shares?.length || 0}`);
+    console.log(`  - Public Q&A Interactions: ${publicQA?.length || 0}`);
+    console.log(`  - Authenticated Q&A Interactions: ${authQA?.length || 0}`);
+    console.log(`  - Legacy Interactions: ${interactions?.length || 0}`);
 
     // Clean up ALL data (GCS) using comprehensive cleanup
     try {
