@@ -435,28 +435,31 @@ const analyticsController = {
             totalDuration: Math.floor(totalDuration)
           });
         } else {
-          // No questions - assume minimum demo viewing time
-          totalDuration = 60; // 1 minute minimum
+          // No questions - no time tracked
+          totalDuration = 0;
         }
 
         // Handle both bulk shares (with client info) and single links (without client info)
         const isSingleLink = !share.client_name;
         
-        interactions.push({
-          share_id: share.id,
-          share_token: share.share_token,
-          client_name: share.client_name || 'Anonymous User',
-          client_email: share.client_email || null,
-          client_company: share.client_company || 'Unknown Company',
-          qudemo_title: share.qudemos_new?.title || 'Unknown Demo',
-          qudemo_id: share.qudemo_id,
-          question_count: questionCount,
-          total_duration: totalDuration,
-          access_count: share.access_count || 0,
-          last_accessed_at: share.last_accessed_at,
-          questions: qaData || [],
-          is_single_link: isSingleLink
-        });
+        // Only include interactions where user has actually engaged (asked questions or spent time)
+        if (questionCount > 0 || totalDuration > 0 || (share.access_count && share.access_count > 0)) {
+          interactions.push({
+            share_id: share.id,
+            share_token: share.share_token,
+            client_name: share.client_name || 'Anonymous User',
+            client_email: share.client_email || null,
+            client_company: share.client_company || 'Unknown Company',
+            qudemo_title: share.qudemos_new?.title || 'Unknown Demo',
+            qudemo_id: share.qudemo_id,
+            question_count: questionCount,
+            total_duration: totalDuration,
+            access_count: share.access_count || 0,
+            last_accessed_at: share.last_accessed_at,
+            questions: qaData || [],
+            is_single_link: isSingleLink
+          });
+        }
       }
 
       console.log(`📊 Returning ${interactions.length} customer interactions`);
@@ -523,6 +526,168 @@ function groupQuestionsIntoSessions(questions) {
 
 module.exports = {
   ...analyticsController,
+  
+  // Generate AI insight summary from customer questions
+  generateInsightSummary: async (req, res) => {
+    try {
+      const { questions, customerName, qudemoTitle } = req.body;
+      
+      console.log(`🤖 Generating AI insight summary for ${customerName || 'customer'}`);
+      console.log(`📝 Number of questions received: ${questions?.length || 0}`);
+      
+      if (!questions || questions.length === 0) {
+        return res.json({
+          success: true,
+          data: {
+            summary: `${customerName || 'The prospect'} accessed ${qudemoTitle || 'the demo'} but hasn't asked any questions yet.`
+          }
+        });
+      }
+      
+      // Helper function to generate smart fallback based on actual questions
+      const generateSmartFallback = () => {
+        const questionTexts = questions.map(q => q.question.toLowerCase());
+        const allText = questionTexts.join(' ');
+        
+        // Analyze keywords to determine focus areas
+        const topics = [];
+        if (allText.match(/\b(price|pricing|cost|payment|subscription|plan)\b/i)) topics.push('pricing');
+        if (allText.match(/\b(security|secure|encryption|compliance|gdpr|soc)\b/i)) topics.push('security');
+        if (allText.match(/\b(integrat|api|connect|sync)\b/i)) topics.push('integration');
+        if (allText.match(/\b(scale|scalab|performance|speed|large)\b/i)) topics.push('scalability');
+        if (allText.match(/\b(support|help|training|onboarding)\b/i)) topics.push('support');
+        if (allText.match(/\b(custom|configurab|flexib)\b/i)) topics.push('customization');
+        if (allText.match(/\b(feature|capability|function)\b/i)) topics.push('features');
+        
+        let summary = `${customerName || 'The prospect'} asked ${questions.length} question${questions.length > 1 ? 's' : ''} about ${qudemoTitle || 'the product'}`;
+        
+        if (topics.length > 0) {
+          const topicText = topics.length === 1 ? topics[0] : 
+                           topics.length === 2 ? `${topics[0]} and ${topics[1]}` :
+                           `${topics.slice(0, -1).join(', ')}, and ${topics[topics.length - 1]}`;
+          summary += `, focusing primarily on ${topicText}`;
+        }
+        
+        // Add buying intent indicator
+        if (questions.length >= 5) {
+          summary += '. The detailed questioning suggests strong evaluation interest and potential buying intent.';
+        } else if (questions.length >= 3) {
+          summary += '. The multiple questions indicate active interest in understanding the solution.';
+        } else {
+          summary += '. They are in the early exploration phase.';
+        }
+        
+        return summary;
+      };
+      
+      // Use OpenAI ChatGPT API to analyze questions
+      const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+      
+      if (!OPENAI_API_KEY) {
+        console.log('⚠️ No OpenAI API key found, using smart fallback');
+        return res.json({
+          success: true,
+          data: {
+            summary: generateSmartFallback()
+          }
+        });
+      }
+      
+      console.log('🔑 OpenAI API key found, calling ChatGPT...');
+      
+      // Format questions for analysis
+      const questionsList = questions.map((q, idx) => `${idx + 1}. ${q.question}`).join('\n');
+      
+      console.log(`📋 Questions being analyzed:\n${questionsList}`);
+      
+      const prompt = `You are an AI sales assistant analyzing customer interactions. A prospect named "${customerName || 'a prospect'}" watched a product demo titled "${qudemoTitle || 'the demo'}" and asked the following questions:
+
+${questionsList}
+
+Based on these questions, provide a brief, insightful 2-3 sentence summary that:
+1. Identifies what the prospect is most interested in
+2. Highlights their main concerns or priorities
+3. Suggests their level of buying intent or what they're evaluating
+
+Keep it professional, concise, and actionable for a sales team. Focus on insights, not just restating what was asked. Do NOT mention how many questions were asked.`;
+
+      const fetch = (await import('node-fetch')).default;
+      const response = await fetch(
+        'https://api.openai.com/v1/chat/completions',
+        {
+          method: 'POST',
+          headers: { 
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${OPENAI_API_KEY}`
+          },
+          body: JSON.stringify({
+            model: 'gpt-3.5-turbo',
+            messages: [
+              {
+                role: 'system',
+                content: 'You are an AI sales assistant that analyzes customer questions to provide actionable insights for sales teams. Be concise and focus on what the customer wants, not how many questions they asked.'
+              },
+              {
+                role: 'user',
+                content: prompt
+              }
+            ],
+            temperature: 0.7,
+            max_tokens: 200
+          })
+        }
+      );
+      
+      console.log(`🌐 OpenAI API response status: ${response.status}`);
+      
+      if (response.ok) {
+        const data = await response.json();
+        console.log('✅ OpenAI API response received');
+        const summary = data.choices?.[0]?.message?.content;
+        
+        if (summary) {
+          console.log(`📄 AI-generated summary: ${summary}`);
+          return res.json({
+            success: true,
+            data: { summary: summary.trim() }
+          });
+        } else {
+          console.log('⚠️ No summary in response, using smart fallback');
+          return res.json({
+            success: true,
+            data: { summary: generateSmartFallback() }
+          });
+        }
+      } else {
+        const errorText = await response.text();
+        console.error(`❌ OpenAI API error: ${response.status} - ${errorText}`);
+        return res.json({
+          success: true,
+          data: { summary: generateSmartFallback() }
+        });
+      }
+      
+    } catch (error) {
+      console.error('❌ Error generating insight summary:', error);
+      console.error('Stack trace:', error.stack);
+      
+      // Generate smart fallback based on questions
+      const questions = req.body.questions || [];
+      const customerName = req.body.customerName;
+      const qudemoTitle = req.body.qudemoTitle;
+      
+      let fallbackSummary = `${customerName || 'The prospect'} showed interest in ${qudemoTitle || 'the demo'}`;
+      if (questions.length > 0) {
+        fallbackSummary += ` by asking ${questions.length} question${questions.length > 1 ? 's' : ''} about the product`;
+      }
+      fallbackSummary += '.';
+      
+      return res.json({
+        success: true,
+        data: { summary: fallbackSummary }
+      });
+    }
+  },
   
   // Get interactions for a specific QuDemo
   getQudemoInteractions: async (req, res) => {
@@ -634,27 +799,30 @@ module.exports = {
               sessionQuestionCount * 30 // Minimum 30 seconds per question
             );
             
-            totalDuration += Math.min(sessionTotal, 1800); // Max 30 minutes per session
-          });
-        } else {
-          // No questions - assume minimum demo viewing time
-          totalDuration = 60; // 1 minute minimum
-        }
-
-        interactions.push({
-          share_id: share.id,
-          share_token: share.share_token,
-          client_name: share.client_name,
-          client_email: share.client_email,
-          client_company: share.client_company,
-          qudemo_title: qudemo.title,
-          qudemo_id: qudemo.id,
-          question_count: questionCount,
-          total_duration: totalDuration,
-          access_count: share.access_count || 0,
-          last_accessed_at: share.last_accessed_at,
-          questions: qaData || []
+          totalDuration += Math.min(sessionTotal, 1800); // Max 30 minutes per session
         });
+      } else {
+        // No questions - no time tracked
+        totalDuration = 0;
+      }
+
+        // Only include interactions where user has actually engaged (asked questions or spent time)
+        if (questionCount > 0 || totalDuration > 0 || (share.access_count && share.access_count > 0)) {
+          interactions.push({
+            share_id: share.id,
+            share_token: share.share_token,
+            client_name: share.client_name,
+            client_email: share.client_email,
+            client_company: share.client_company,
+            qudemo_title: qudemo.title,
+            qudemo_id: qudemo.id,
+            question_count: questionCount,
+            total_duration: totalDuration,
+            access_count: share.access_count || 0,
+            last_accessed_at: share.last_accessed_at,
+            questions: qaData || []
+          });
+        }
       }
 
       console.log(`📊 Returning ${interactions.length} interactions for QuDemo ${qudemoId}`);
