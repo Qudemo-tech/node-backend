@@ -600,11 +600,15 @@ module.exports = {
       
       console.log(`📋 Questions being analyzed:\n${questionsList}`);
       
-      const prompt = `Analyze these customer questions and provide a brief insight:
+      const prompt = `Analyze these customer questions about ${qudemoTitle || 'the product'}:
 
 ${questionsList}
 
-Write ONE concise sentence (max 120 characters) that identifies what the prospect wants and their buying stage. Be direct and actionable.`;
+Based ONLY on the actual questions above, write 1-2 sentences (max 200 characters total) that:
+1. Identifies what the prospect is specifically interested in or needs
+2. Indicates their buying stage (researching/evaluating/ready to buy)
+
+Focus on the CONTENT of their questions, not the quantity. Be specific about their interests.`;
 
       const fetch = (await import('node-fetch')).default;
       const response = await fetch(
@@ -620,15 +624,15 @@ Write ONE concise sentence (max 120 characters) that identifies what the prospec
             messages: [
               {
                 role: 'system',
-                content: 'You are a sales assistant. Provide ONE ultra-concise sentence (max 120 characters). Focus on what they want and their buying intent. No question counts.'
+                content: 'You are a B2B sales analyst. Analyze customer questions to identify their specific needs and buying intent. Write 1-2 concise sentences (max 200 chars). Focus on WHAT they asked about, not HOW MANY questions. Never mention question counts. Be specific about their interests based on question content.'
               },
               {
                 role: 'user',
                 content: prompt
               }
             ],
-            temperature: 0.7,
-            max_tokens: 80
+            temperature: 0.5,
+            max_tokens: 100
           })
         }
       );
@@ -683,7 +687,234 @@ Write ONE concise sentence (max 120 characters) that identifies what the prospec
       });
     }
   },
-  
+
+  // Get lightweight customer list (without detailed Q&A data)
+  getCustomerList: async (req, res) => {
+    try {
+      const userId = req.user?.userId || req.user?.id;
+      console.log(`📊 Customer list request from user: ${userId}`);
+
+      // Get user's companies
+      const { data: companies, error: companiesError } = await supabase
+        .from('companies')
+        .select('id, name')
+        .eq('user_id', userId);
+
+      if (companiesError || !companies || companies.length === 0) {
+        return res.status(404).json({
+          success: false,
+          error: 'No companies found for user'
+        });
+      }
+
+      const companyIds = companies.map(c => c.id);
+      console.log(`📊 Found ${companyIds.length} companies:`, companyIds);
+
+      // Get share links with basic client information (no Q&A data)
+      const { data: shares, error: sharesError } = await supabase
+        .from('qudemo_shares')
+        .select(`
+          id,
+          share_token,
+          client_name,
+          client_email,
+          client_company,
+          access_count,
+          last_accessed_at,
+          qudemo_id,
+          qudemos_new!inner(
+            id,
+            title,
+            company_id
+          )
+        `)
+        .in('company_id', companyIds)
+        .order('last_accessed_at', { ascending: false });
+
+      if (sharesError) {
+        console.error('❌ Error fetching shares:', sharesError);
+        return res.status(500).json({
+          success: false,
+          error: 'Failed to fetch customer list'
+        });
+      }
+
+      console.log(`📊 Found ${shares?.length || 0} share records`);
+
+      // Get all share tokens for batch question count query
+      const shareTokens = shares?.map(share => share.share_token) || [];
+      
+      // Single batch query to get question counts for all shares
+      let questionCounts = {};
+      if (shareTokens.length > 0) {
+        const { data: qaCounts, error: qaError } = await supabase
+          .from('public_qa_interactions')
+          .select('share_token')
+          .in('share_token', shareTokens);
+
+        if (qaError) {
+          console.error(`❌ Error fetching Q&A counts:`, qaError);
+        } else {
+          // Count questions per share token
+          questionCounts = qaCounts?.reduce((acc, qa) => {
+            acc[qa.share_token] = (acc[qa.share_token] || 0) + 1;
+            return acc;
+          }, {}) || {};
+        }
+      }
+
+      // Build customer list with pre-calculated question counts
+      const customerList = [];
+      for (const share of shares || []) {
+        const questionCount = questionCounts[share.share_token] || 0;
+
+        // Only include interactions where user has actually engaged
+        if (questionCount > 0 || (share.access_count && share.access_count > 0)) {
+          customerList.push({
+            share_id: share.id,
+            share_token: share.share_token,
+            client_name: share.client_name || 'Anonymous User',
+            client_email: share.client_email || null,
+            client_company: share.client_company || 'Unknown Company',
+            qudemo_title: share.qudemos_new?.title || 'Unknown Demo',
+            qudemo_id: share.qudemo_id,
+            question_count: questionCount,
+            access_count: share.access_count || 0,
+            last_accessed_at: share.last_accessed_at,
+            is_single_link: !share.client_name
+          });
+        }
+      }
+
+      console.log(`📊 Returning ${customerList.length} customers (lightweight)`);
+
+      res.json({
+        success: true,
+        data: customerList
+      });
+
+    } catch (error) {
+      console.error('❌ Error in getCustomerList:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Internal server error'
+      });
+    }
+  },
+
+  // Get detailed interaction data for a specific customer
+  getCustomerInteractionDetails: async (req, res) => {
+    try {
+      const { shareToken } = req.params;
+      const userId = req.user?.userId || req.user?.id;
+      
+      console.log(`📊 Customer interaction details request for share: ${shareToken}, user: ${userId}`);
+
+      // Verify user has access to this share
+      const { data: share, error: shareError } = await supabase
+        .from('qudemo_shares')
+        .select(`
+          id,
+          share_token,
+          client_name,
+          client_email,
+          client_company,
+          access_count,
+          last_accessed_at,
+          qudemo_id,
+          qudemos_new!inner(
+            id,
+            title,
+            company_id,
+            companies!inner(user_id)
+          )
+        `)
+        .eq('share_token', shareToken)
+        .eq('qudemos_new.companies.user_id', userId)
+        .single();
+
+      if (shareError || !share) {
+        return res.status(404).json({
+          success: false,
+          error: 'Share not found or access denied'
+        });
+      }
+
+      // Get detailed Q&A interactions for this share
+      const { data: qaData, error: qaError } = await supabase
+        .from('public_qa_interactions')
+        .select('question, answer, created_at, start_timestamp, end_timestamp, formatted_timestamp, video_url')
+        .eq('share_token', shareToken)
+        .order('created_at', { ascending: false });
+
+      if (qaError) {
+        console.error(`❌ Error fetching Q&A for share ${shareToken}:`, qaError);
+        return res.status(500).json({
+          success: false,
+          error: 'Failed to fetch interaction details'
+        });
+      }
+
+      // Calculate total duration with session-based logic
+      const questionCount = qaData?.length || 0;
+      let totalDuration = 0;
+
+      if (qaData && qaData.length > 0) {
+        const sortedQuestions = qaData.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+        const sessions = groupQuestionsIntoSessions(sortedQuestions);
+        
+        sessions.forEach((session, sessionIndex) => {
+          const sessionQuestions = session.questions;
+          const sessionQuestionCount = sessionQuestions.length;
+          
+          const sessionStart = new Date(session.startTime);
+          const sessionEnd = new Date(session.endTime);
+          const sessionDuration = Math.floor((sessionEnd - sessionStart) / 1000);
+          
+          const questionTime = sessionQuestionCount * 45;
+          const demoViewingTime = sessionIndex === 0 ? Math.min(sessionDuration * 0.3, 300) : 0;
+          
+          const sessionTotal = Math.max(
+            sessionDuration + questionTime + demoViewingTime,
+            sessionQuestionCount * 30
+          );
+          
+          totalDuration += Math.min(sessionTotal, 1800);
+        });
+      }
+
+      const interactionDetails = {
+        share_id: share.id,
+        share_token: share.share_token,
+        client_name: share.client_name || 'Anonymous User',
+        client_email: share.client_email || null,
+        client_company: share.client_company || 'Unknown Company',
+        qudemo_title: share.qudemos_new?.title || 'Unknown Demo',
+        qudemo_id: share.qudemo_id,
+        question_count: questionCount,
+        total_duration: totalDuration,
+        access_count: share.access_count || 0,
+        last_accessed_at: share.last_accessed_at,
+        questions: qaData || [],
+        is_single_link: !share.client_name
+      };
+
+      console.log(`📊 Returning detailed interaction data for ${shareToken}`);
+
+      res.json({
+        success: true,
+        data: interactionDetails
+      });
+
+    } catch (error) {
+      console.error('❌ Error in getCustomerInteractionDetails:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Internal server error'
+      });
+    }
+  },
+
   // Get interactions for a specific QuDemo
   getQudemoInteractions: async (req, res) => {
     try {

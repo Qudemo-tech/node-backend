@@ -20,6 +20,12 @@ router.get('/qudemos/:qudemoId', authenticateToken, analyticsController.getQudem
 // Get customer interactions data (Pro/Enterprise only - checked in controller)
 router.get('/customer-interactions', authenticateToken, analyticsController.getCustomerInteractions);
 
+// Get lightweight customer list (Pro/Enterprise only - checked in controller)
+router.get('/customer-list', authenticateToken, analyticsController.getCustomerList);
+
+// Get detailed interaction data for a specific customer (Pro/Enterprise only - checked in controller)
+router.get('/customer-interaction-details/:shareToken', authenticateToken, analyticsController.getCustomerInteractionDetails);
+
 // Get interactions for a specific QuDemo (Pro/Enterprise only - checked in controller)
 router.get('/qudemo-interactions/:qudemoId', authenticateToken, analyticsController.getQudemoInteractions);
 
