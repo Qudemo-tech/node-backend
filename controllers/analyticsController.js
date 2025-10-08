@@ -600,16 +600,11 @@ module.exports = {
       
       console.log(`📋 Questions being analyzed:\n${questionsList}`);
       
-      const prompt = `You are an AI sales assistant analyzing customer interactions. A prospect named "${customerName || 'a prospect'}" watched a product demo titled "${qudemoTitle || 'the demo'}" and asked the following questions:
+      const prompt = `Analyze these customer questions and provide a brief insight:
 
 ${questionsList}
 
-Based on these questions, provide a brief, insightful 2-3 sentence summary that:
-1. Identifies what the prospect is most interested in
-2. Highlights their main concerns or priorities
-3. Suggests their level of buying intent or what they're evaluating
-
-Keep it professional, concise, and actionable for a sales team. Focus on insights, not just restating what was asked. Do NOT mention how many questions were asked.`;
+Write ONE concise sentence (max 120 characters) that identifies what the prospect wants and their buying stage. Be direct and actionable.`;
 
       const fetch = (await import('node-fetch')).default;
       const response = await fetch(
@@ -625,7 +620,7 @@ Keep it professional, concise, and actionable for a sales team. Focus on insight
             messages: [
               {
                 role: 'system',
-                content: 'You are an AI sales assistant that analyzes customer questions to provide actionable insights for sales teams. Be concise and focus on what the customer wants, not how many questions they asked.'
+                content: 'You are a sales assistant. Provide ONE ultra-concise sentence (max 120 characters). Focus on what they want and their buying intent. No question counts.'
               },
               {
                 role: 'user',
@@ -633,7 +628,7 @@ Keep it professional, concise, and actionable for a sales team. Focus on insight
               }
             ],
             temperature: 0.7,
-            max_tokens: 200
+            max_tokens: 80
           })
         }
       );

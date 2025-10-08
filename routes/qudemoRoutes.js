@@ -218,6 +218,7 @@ router.get('/bulk-uploads', authenticateToken, async (req, res) => {
         qudemo_id,
         operation_type,
         operation_id,
+        original_filename,
         qudemos_new!inner(
           id,
           title,
@@ -284,10 +285,13 @@ router.get('/bulk-uploads', authenticateToken, async (req, res) => {
       
       const uploadKey = `${firstShare.qudemo_id}_${dateKey}_${operationType}_${groupKey}`;
       
+      // Use original filename if available, otherwise generate one
+      const displayFilename = firstShare.original_filename || `${operationLabel}_${qudemoTitle}_${dateKey}.csv`;
+      
       uploadGroups[uploadKey] = {
         id: firstShare.id,
-        original_filename: `${operationLabel}_${qudemoTitle}_${dateKey}.csv`,
-        file_name: `${operationLabel}_${qudemoTitle}_${dateKey}.csv`,
+        original_filename: displayFilename,
+        file_name: displayFilename,
         created_at: firstShare.created_at,
         qudemo_title: firstShare.qudemos_new?.title || 'Unknown Demo',
         qudemo_id: firstShare.qudemo_id,
@@ -362,6 +366,7 @@ router.get('/bulk-uploads/:uploadId/download', authenticateToken, async (req, re
         qudemo_id,
         operation_type,
         operation_id,
+        original_filename,
         qudemos_new!inner(
           id,
           title,
@@ -413,10 +418,13 @@ router.get('/bulk-uploads/:uploadId/download', authenticateToken, async (req, re
       
       const key = `${firstShare.qudemo_id}_${dateKey}_${operationType}_${groupKey}`;
       
+      // Use original filename if available, otherwise generate one
+      const displayFilename = firstShare.original_filename || `${operationLabel}_${qudemoTitle}_${dateKey}.csv`;
+      
       uploadGroups[key] = {
         id: firstShare.id,
-        original_filename: `${operationLabel}_${qudemoTitle}_${dateKey}.csv`,
-        file_name: `${operationLabel}_${qudemoTitle}_${dateKey}.csv`,
+        original_filename: displayFilename,
+        file_name: displayFilename,
         created_at: firstShare.created_at,
         qudemo_title: firstShare.qudemos_new?.title || 'Unknown Demo',
         qudemo_id: firstShare.qudemo_id,
@@ -469,16 +477,26 @@ router.get('/bulk-uploads/:uploadId/download', authenticateToken, async (req, re
       .map(row => row.map(field => `"${field}"`).join(','))
       .join('\n');
 
-    const buffer = Buffer.from(csvContent, 'utf8');
+    // Add UTF-8 BOM for better Excel compatibility
+    const BOM = '\uFEFF';
+    const buffer = Buffer.from(BOM + csvContent, 'utf8');
 
-    // Generate filename with operation type, QuDemo title and date
-    const dateStr = targetUpload.created_at.split('T')[0];
-    const qudemoTitle = targetUpload.qudemo_title.replace(/[^a-zA-Z0-9]/g, '_');
-    const operationLabel = targetUpload.operation_type === 'few_links' ? 'Few_Links' : 'Bulk_Upload';
-    const filename = `${operationLabel}_${qudemoTitle}_${dateStr}.csv`;
+    // Use original filename but always with .csv extension
+    let filename;
+    if (targetUpload.original_filename) {
+      // Remove any existing extension and add .csv
+      const nameWithoutExt = targetUpload.original_filename.replace(/\.[^/.]+$/, '');
+      filename = `${nameWithoutExt}.csv`;
+    } else {
+      // Fallback to generated filename
+      const dateStr = targetUpload.created_at.split('T')[0];
+      const qudemoTitle = targetUpload.qudemo_title.replace(/[^a-zA-Z0-9]/g, '_');
+      const operationLabel = targetUpload.operation_type === 'few_links' ? 'Few_Links' : 'Bulk_Upload';
+      filename = `${operationLabel}_${qudemoTitle}_${dateStr}.csv`;
+    }
     
     res.set({
-      'Content-Type': 'text/csv',
+      'Content-Type': 'text/csv; charset=utf-8',
       'Content-Disposition': `attachment; filename="${filename}"`,
       'Content-Length': buffer.length
     });
@@ -574,7 +592,7 @@ router.post('/bulk-share', authenticateToken, async (req, res) => {
     console.log(`🔗 URL: ${req.url}`);
     console.log(`🔗 Body:`, req.body);
 
-        const { qudemoId, clientData, operationSource } = req.body;
+        const { qudemoId, clientData, operationSource, originalFilename } = req.body;
     const userId = req.user?.userId || req.user?.id;
     
     // Generate a unique operation ID for this bulk share operation
@@ -704,7 +722,9 @@ router.post('/bulk-share', authenticateToken, async (req, res) => {
               // Operation type to differentiate between "Few Links" and "Bulk Upload"
               operation_type: operationSource === 'bulk_upload' ? 'bulk_upload' : 'few_links',
               // Unique operation ID to separate individual operations
-              operation_id: operationId
+              operation_id: operationId,
+              // Original filename for bulk uploads
+              original_filename: originalFilename || null
             };
 
         const { data: shareResult, error: shareError } = await supabase
@@ -2271,6 +2291,8 @@ router.get('/bulk-uploads/:uploadId/download', authenticateToken, async (req, re
         client_company,
         share_token,
         qudemo_id,
+        operation_id,
+        original_filename,
         qudemos_new!inner(
           id,
           title,
@@ -2288,23 +2310,56 @@ router.get('/bulk-uploads/:uploadId/download', authenticateToken, async (req, re
       });
     }
 
-    // Get all customers for this upload (same qudemo and date)
-    const uploadDate = uploadData.created_at.split('T')[0];
-    const { data: allCustomers, error: customersError } = await supabase
-      .from('qudemo_shares')
-      .select(`
-        client_sl_no,
-        client_name,
-        client_email,
-        client_company,
-        share_token
-      `)
-      .eq('qudemo_id', uploadData.qudemo_id)
-      .gte('created_at', `${uploadDate}T00:00:00`)
-      .lte('created_at', `${uploadDate}T23:59:59`)
-      .in('company_id', companyIds)
-      .not('client_name', 'is', null)
-      .order('client_sl_no', { ascending: true });
+    // Get all customers for this upload using operation_id
+    let allCustomers;
+    let customersError;
+    
+    console.log(`📋 Fetching customers for upload ${uploadId}, operation_id: ${uploadData.operation_id}`);
+    
+    if (uploadData.operation_id) {
+      // New records with operation_id - fetch by operation_id
+      console.log(`✅ Using operation_id: ${uploadData.operation_id}`);
+      const result = await supabase
+        .from('qudemo_shares')
+        .select(`
+          client_sl_no,
+          client_name,
+          client_email,
+          client_company,
+          share_token
+        `)
+        .eq('operation_id', uploadData.operation_id)
+        .in('company_id', companyIds)
+        .not('client_name', 'is', null)
+        .order('client_sl_no', { ascending: true });
+      
+      allCustomers = result.data;
+      customersError = result.error;
+      console.log(`📊 Found ${allCustomers?.length || 0} customers by operation_id`);
+    } else {
+      // Legacy records without operation_id - fetch by date range
+      console.log(`⚠️ No operation_id, using date range fallback`);
+      const uploadDate = uploadData.created_at.split('T')[0];
+      const result = await supabase
+        .from('qudemo_shares')
+        .select(`
+          client_sl_no,
+          client_name,
+          client_email,
+          client_company,
+          share_token
+        `)
+        .eq('qudemo_id', uploadData.qudemo_id)
+        .gte('created_at', `${uploadDate}T00:00:00`)
+        .lte('created_at', `${uploadDate}T23:59:59`)
+        .in('company_id', companyIds)
+        .not('client_name', 'is', null)
+        .order('client_sl_no', { ascending: true });
+      
+      allCustomers = result.data;
+      customersError = result.error;
+      console.log(`📊 Found ${allCustomers?.length || 0} customers by date range`);
+    }
 
     if (customersError) {
       console.error('❌ Error fetching customers:', customersError);
@@ -2314,8 +2369,7 @@ router.get('/bulk-uploads/:uploadId/download', authenticateToken, async (req, re
       });
     }
 
-    // Generate Excel file
-    const XLSX = require('xlsx');
+    // Generate CSV file
     
     // Generate share URLs for each customer
     let baseUrl;
@@ -2329,38 +2383,40 @@ router.get('/bulk-uploads/:uploadId/download', authenticateToken, async (req, re
     }
     baseUrl = baseUrl.replace(/\/$/, '');
 
-    // Prepare data for Excel
-    const excelData = allCustomers?.map((customer, index) => ({
-      'SL No': customer.client_sl_no || index + 1,
-      'Name': customer.client_name || '',
-      'Company': customer.client_company || '',
-      'Email': customer.client_email || '',
-      'Shared QuDemo': `${baseUrl}/share/${customer.share_token}`
-    })) || [];
+    // Prepare CSV data (same format as first endpoint)
+    const csvHeaders = ['SL No', 'Client Name', 'Company Name', 'Email', 'Shared QuDemo'];
+    const csvRows = allCustomers?.map(customer => [
+      customer.client_sl_no || '',
+      customer.client_name || '',
+      customer.client_company || '',
+      customer.client_email || '',
+      `${baseUrl}/share/${customer.share_token}`
+    ]) || [];
 
-    // Create workbook and worksheet
-    const workbook = XLSX.utils.book_new();
-    const worksheet = XLSX.utils.json_to_sheet(excelData);
+    const csvContent = [csvHeaders, ...csvRows]
+      .map(row => row.map(field => `"${field}"`).join(','))
+      .join('\n');
 
-    // Set column widths
-    worksheet['!cols'] = [
-      { width: 10 }, // SL No
-      { width: 20 }, // Name
-      { width: 25 }, // Company
-      { width: 30 }, // Email
-      { width: 50 }  // Shared QuDemo
-    ];
+    // Add UTF-8 BOM for better Excel compatibility
+    const BOM = '\uFEFF';
+    const buffer = Buffer.from(BOM + csvContent, 'utf8');
 
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'Bulk Links');
-
-    // Generate buffer
-    const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
-
-    // Set response headers
-    const fileName = `bulk-links-${uploadDate}.xlsx`;
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
-    res.setHeader('Content-Length', buffer.length);
+    // Use original filename but always with .csv extension
+    let fileName;
+    if (uploadData.original_filename) {
+      // Remove any existing extension and add .csv
+      const nameWithoutExt = uploadData.original_filename.replace(/\.[^/.]+$/, '');
+      fileName = `${nameWithoutExt}.csv`;
+    } else {
+      // Fallback to generated filename
+      fileName = `bulk-links-${uploadDate}.csv`;
+    }
+    
+    res.set({
+      'Content-Type': 'text/csv; charset=utf-8',
+      'Content-Disposition': `attachment; filename="${fileName}"`,
+      'Content-Length': buffer.length
+    });
 
     res.send(buffer);
 
