@@ -744,29 +744,70 @@ Focus on the CONTENT of their questions, not the quantity. Be specific about the
       // Get all share tokens for batch question count query
       const shareTokens = shares?.map(share => share.share_token) || [];
       
-      // Single batch query to get question counts for all shares
+      // Single batch query to get question counts and total duration for all shares
       let questionCounts = {};
+      let totalDurations = {};
       if (shareTokens.length > 0) {
-        const { data: qaCounts, error: qaError } = await supabase
+        const { data: qaData, error: qaError } = await supabase
           .from('public_qa_interactions')
-          .select('share_token')
-          .in('share_token', shareTokens);
+          .select('share_token, created_at')
+          .in('share_token', shareTokens)
+          .order('share_token, created_at');
 
         if (qaError) {
-          console.error(`❌ Error fetching Q&A counts:`, qaError);
+          console.error(`❌ Error fetching Q&A data:`, qaError);
         } else {
-          // Count questions per share token
-          questionCounts = qaCounts?.reduce((acc, qa) => {
-            acc[qa.share_token] = (acc[qa.share_token] || 0) + 1;
+          // Count questions and calculate total duration per share token using session-based logic
+          const shareGroups = qaData?.reduce((acc, qa) => {
+            if (!acc[qa.share_token]) {
+              acc[qa.share_token] = [];
+            }
+            acc[qa.share_token].push(qa);
             return acc;
           }, {}) || {};
+
+          // Calculate question counts and durations using the same logic as detailed view
+          for (const [shareToken, qaList] of Object.entries(shareGroups)) {
+            questionCounts[shareToken] = qaList.length;
+            
+            let totalDuration = 0;
+            if (qaList.length > 0) {
+              // Sort questions by creation time
+              const sortedQuestions = qaList.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+              
+              // Group questions into sessions (gap > 2 hours = new session)
+              const sessions = groupQuestionsIntoSessions(sortedQuestions);
+              
+              sessions.forEach((session, sessionIndex) => {
+                const sessionQuestions = session.questions;
+                const sessionQuestionCount = sessionQuestions.length;
+                
+                const sessionStart = new Date(session.startTime);
+                const sessionEnd = new Date(session.endTime);
+                const sessionDuration = Math.floor((sessionEnd - sessionStart) / 1000);
+                
+                const questionTime = sessionQuestionCount * 45;
+                const demoViewingTime = sessionIndex === 0 ? Math.min(sessionDuration * 0.3, 300) : 0;
+                
+                const sessionTotal = Math.max(
+                  sessionDuration + questionTime + demoViewingTime,
+                  sessionQuestionCount * 30
+                );
+                
+                totalDuration += Math.min(sessionTotal, 1800);
+              });
+            }
+            
+            totalDurations[shareToken] = totalDuration;
+          }
         }
       }
 
-      // Build customer list with pre-calculated question counts
+      // Build customer list with pre-calculated question counts and durations
       const customerList = [];
       for (const share of shares || []) {
         const questionCount = questionCounts[share.share_token] || 0;
+        const totalDuration = totalDurations[share.share_token] || 0;
 
         // Only include interactions where user has actually engaged
         if (questionCount > 0 || (share.access_count && share.access_count > 0)) {
@@ -779,6 +820,7 @@ Focus on the CONTENT of their questions, not the quantity. Be specific about the
             qudemo_title: share.qudemos_new?.title || 'Unknown Demo',
             qudemo_id: share.qudemo_id,
             question_count: questionCount,
+            total_duration: totalDuration,
             access_count: share.access_count || 0,
             last_accessed_at: share.last_accessed_at,
             is_single_link: !share.client_name
