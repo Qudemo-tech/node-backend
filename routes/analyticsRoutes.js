@@ -11,6 +11,12 @@ router.use((req, res, next) => {
   next();
 });
 
+// Get overview statistics for dashboard
+router.get('/overview', authenticateToken, analyticsController.getOverviewStats);
+
+// Get recent interactions for overview page
+router.get('/recent-interactions', authenticateToken, analyticsController.getRecentInteractions);
+
 // Get analytics data for all QuDemos (Enterprise only - checked in controller)
 router.get('/qudemos', authenticateToken, analyticsController.getQudemoAnalytics);
 

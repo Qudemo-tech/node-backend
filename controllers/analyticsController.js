@@ -7,6 +7,195 @@ const supabase = createClient(
 );
 
 const analyticsController = {
+  // Get overview statistics for dashboard
+  getOverviewStats: async (req, res) => {
+    try {
+      const userId = req.user?.userId || req.user?.id;
+      console.log(`📊 Overview stats request from user: ${userId}`);
+
+      // Get user's companies
+      const { data: companies, error: companiesError } = await supabase
+        .from('companies')
+        .select('id, name')
+        .eq('user_id', userId);
+
+      if (companiesError || !companies || companies.length === 0) {
+        return res.status(404).json({
+          success: false,
+          error: 'No companies found for user'
+        });
+      }
+
+      const companyIds = companies.map(c => c.id);
+      console.log(`📊 Found ${companyIds.length} companies:`, companyIds);
+
+      // Get total demo views (access_count from qudemo_shares)
+      const { data: totalViewsData, error: viewsError } = await supabase
+        .from('qudemo_shares')
+        .select('access_count')
+        .in('company_id', companyIds);
+
+      let totalViews = 0;
+      if (!viewsError && totalViewsData) {
+        totalViews = totalViewsData.reduce((sum, share) => sum + (share.access_count || 0), 0);
+      }
+
+      // Get total questions asked (count from public_qa_interactions)
+      const { data: questionsData, error: questionsError } = await supabase
+        .from('public_qa_interactions')
+        .select('id')
+        .in('company_id', companyIds);
+
+      const questionsAsked = questionsError ? 0 : (questionsData?.length || 0);
+
+      // Calculate average engagement (percentage of shares that have interactions)
+      const { data: sharesData, error: sharesError } = await supabase
+        .from('qudemo_shares')
+        .select('id')
+        .in('company_id', companyIds);
+
+      const { data: interactionsData, error: interactionsError } = await supabase
+        .from('public_qa_interactions')
+        .select('share_token')
+        .in('company_id', companyIds);
+
+      let avgEngagement = 0;
+      if (!sharesError && !interactionsError && sharesData && interactionsData) {
+        const totalShares = sharesData.length;
+        const sharesWithInteractions = new Set(interactionsData.map(i => i.share_token)).size;
+        if (totalShares > 0) {
+          avgEngagement = Math.round((sharesWithInteractions / totalShares) * 100);
+        }
+      }
+
+      const overviewStats = {
+        totalViews,
+        questionsAsked,
+        avgEngagement
+      };
+
+      console.log('📊 Overview stats calculated:', overviewStats);
+
+      res.json(overviewStats);
+    } catch (error) {
+      console.error('❌ Error in getOverviewStats:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to fetch overview statistics'
+      });
+    }
+  },
+
+  // Get recent interactions for overview page
+  getRecentInteractions: async (req, res) => {
+    try {
+      const userId = req.user?.userId || req.user?.id;
+      console.log(`📊 Recent interactions request from user: ${userId}`);
+
+      // Get user's companies
+      const { data: companies, error: companiesError } = await supabase
+        .from('companies')
+        .select('id, name')
+        .eq('user_id', userId);
+
+      if (companiesError || !companies || companies.length === 0) {
+        return res.status(404).json({
+          success: false,
+          error: 'No companies found for user'
+        });
+      }
+
+      const companyIds = companies.map(c => c.id);
+
+      // Get recent interactions with customer details
+      const { data: interactions, error: interactionsError } = await supabase
+        .from('public_qa_interactions')
+        .select(`
+          id,
+          question,
+          created_at,
+          share_token,
+          company_id
+        `)
+        .in('company_id', companyIds)
+        .order('created_at', { ascending: false })
+        .limit(20);
+
+      console.log('Raw interactions:', interactions);
+
+      // Get share details for the interactions
+      const shareTokens = [...new Set(interactions.map(i => i.share_token))];
+      const { data: shares, error: sharesError } = await supabase
+        .from('qudemo_shares')
+        .select('share_token, client_name, client_email, client_company')
+        .in('share_token', shareTokens);
+
+      console.log('Shares data:', shares);
+
+      if (interactionsError || sharesError) {
+        console.error('❌ Error fetching recent interactions:', interactionsError || sharesError);
+        return res.status(500).json({
+          success: false,
+          error: 'Failed to fetch recent interactions'
+        });
+      }
+
+      // Create a map of share tokens to share details
+      const shareMap = new Map();
+      if (shares) {
+        shares.forEach(share => {
+          shareMap.set(share.share_token, share);
+        });
+      }
+
+      // Group interactions by share_token to get unique customers
+      const customerMap = new Map();
+      
+      if (interactions) {
+        interactions.forEach(interaction => {
+          const shareToken = interaction.share_token;
+          const share = shareMap.get(shareToken);
+          
+          if (!customerMap.has(shareToken)) {
+            customerMap.set(shareToken, {
+              client_name: share?.client_name || 'Anonymous User',
+              client_email: share?.client_email || '',
+              client_company: share?.client_company || 'No company',
+              share_token: shareToken,
+              questionCount: 0,
+              lastInteractionDate: interaction.created_at,
+              latestQuestion: interaction.question
+            });
+          }
+          
+          const customer = customerMap.get(shareToken);
+          customer.questionCount += 1;
+          
+          // Update to the most recent interaction date
+          if (new Date(interaction.created_at) > new Date(customer.lastInteractionDate)) {
+            customer.lastInteractionDate = interaction.created_at;
+            customer.latestQuestion = interaction.question;
+          }
+        });
+      }
+
+      // Convert to array and sort by last interaction date
+      const recentInteractions = Array.from(customerMap.values())
+        .sort((a, b) => new Date(b.lastInteractionDate) - new Date(a.lastInteractionDate))
+        .slice(0, 10); // Limit to 10 most recent
+
+      console.log(`📊 Found ${recentInteractions.length} recent interactions`);
+      console.log('Recent interactions data:', recentInteractions);
+
+      res.json(recentInteractions);
+    } catch (error) {
+      console.error('❌ Error in getRecentInteractions:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to fetch recent interactions'
+      });
+    }
+  },
   // Get all QuDemos with their share links and Q&A data for analytics
   getQudemoAnalytics: async (req, res) => {
     try {
