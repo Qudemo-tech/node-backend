@@ -1123,18 +1123,38 @@ const companyController = {
             const companyId = req.params.companyId;
             const { name, website } = req.body;
 
-            // Find user by auth_user_id
-            const { data: userData, error: userError } = await supabase
+            let userId;
+            
+            // First try to find user by auth_user_id (for OAuth users)
+            const { data: userDataByAuthId, error: userErrorByAuthId } = await supabase
                 .from('users')
                 .select('id')
                 .eq('auth_user_id', authUserId)
                 .single();
-
-            if (userError || !userData) {
-                return res.status(404).json({
-                    success: false,
-                    error: 'User not found'
-                });
+            
+            if (!userErrorByAuthId && userDataByAuthId) {
+                // Found by auth_user_id (OAuth user)
+                userId = userDataByAuthId.id;
+                console.log('✅ Found user by auth_user_id:', userId);
+            } else {
+                // Try to find user by database ID (for email/password users)
+                const { data: userDataById, error: userErrorById } = await supabase
+                    .from('users')
+                    .select('id')
+                    .eq('id', authUserId)
+                    .single();
+                
+                if (!userErrorById && userDataById) {
+                    // Found by database ID (email/password user)
+                    userId = userDataById.id;
+                    console.log('✅ Found user by database ID:', userId);
+                } else {
+                    console.error('❌ User not found by either auth_user_id or database ID');
+                    return res.status(404).json({
+                        success: false,
+                        error: 'User not found'
+                    });
+                }
             }
 
             // Verify company belongs to user
@@ -1142,7 +1162,7 @@ const companyController = {
                 .from('companies')
                 .select('*')
                 .eq('id', companyId)
-                .eq('user_id', userData.id)
+                .eq('user_id', userId)
                 .single();
 
             if (companyError || !company) {
