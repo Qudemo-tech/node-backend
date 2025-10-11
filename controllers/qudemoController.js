@@ -393,7 +393,7 @@ const deleteQudemoCompletely = async (qudemoId) => {
 // Create new qudemo
 const createQudemo = async (req, res) => {
   try {
-    const { title, description, companyId, videos, knowledgeSources } = req.body;
+    const { title, description, companyId, videos, knowledgeSources, calendlyLink } = req.body;
     const authUserId = req.user.userId || req.user.id;
 
     // First try to find user by Database ID (for local JWT tokens)
@@ -542,6 +542,7 @@ const createQudemo = async (req, res) => {
       description,
       company_id: companyId,
       created_by: userId,
+      calendly_link: calendlyLink || null,
       status: 'active',
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
@@ -703,7 +704,7 @@ const createQudemo = async (req, res) => {
 const updateQudemo = async (req, res) => {
   try {
     const { id } = req.params;
-    const { title, description, status, videos, knowledgeSources } = req.body;
+    const { title, description, status, videos, knowledgeSources, calendlyLink } = req.body;
     const authUserId = req.user.userId || req.user.id;
 
     // First try to find user by Database ID (for local JWT tokens)
@@ -787,6 +788,7 @@ const updateQudemo = async (req, res) => {
     if (title) updateData.title = title;
     if (description !== undefined) updateData.description = description;
     if (status) updateData.status = status;
+    if (calendlyLink !== undefined) updateData.calendly_link = calendlyLink || null;
 
     const { error: updateError } = await supabase
       .from('qudemos_new')
