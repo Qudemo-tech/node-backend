@@ -1120,7 +1120,7 @@ const companyController = {
     async updateCompany(req, res) {
         try {
             const authUserId = req.user.userId || req.user.id;
-            const companyId = req.params.id;
+            const companyId = req.params.companyId;
             const { name, website } = req.body;
 
             // Find user by auth_user_id
