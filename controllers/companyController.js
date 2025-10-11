@@ -1177,8 +1177,7 @@ const companyController = {
                 .from('companies')
                 .update({
                     name: name || company.name,
-                    website: website || company.website,
-                    updated_at: new Date().toISOString()
+                    website: website || company.website
                 })
                 .eq('id', companyId)
                 .select()
