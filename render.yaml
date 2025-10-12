@@ -24,7 +24,7 @@ services:
       - key: GEMINI_API_KEY
         sync: false
       - key: FRONTEND_URL
-        value: https://qudemo.com
+        value: https://testqudemo.netlify.app
       # Note: PINECONE_API_KEY removed - now using GCS-based storage
     healthCheckPath: /health
     autoDeploy: true
