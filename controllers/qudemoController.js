@@ -2022,7 +2022,20 @@ const getSharedQudemo = async (req, res) => {
 
     console.log(`🔍 Subscription check for shared QuDemo - Plan: ${subscriptionPlan}, Status: ${subscriptionStatus}`);
 
-    if (!isPro || !isActive) {
+    // ============================================
+    // WELCOME QUDEMO EXCEPTION
+    // ============================================
+    // This Qudemo is universally accessible to all users (free & Pro)
+    // regardless of the owner's subscription plan or status.
+    // It serves as the demo/welcome Qudemo shown to new users.
+    // Share Token: ca6b5a1b-0764-4e1c-bf6c-3e3c5bc93d1d
+    // Qudemo ID: 48b29bfb-b290-4669-9f25-ee411cdb1d9d
+    const WELCOME_QUDEMO_SHARE_TOKEN = 'ca6b5a1b-0764-4e1c-bf6c-3e3c5bc93d1d';
+    const isWelcomeQudemo = shareToken === WELCOME_QUDEMO_SHARE_TOKEN;
+    
+    if (isWelcomeQudemo) {
+      console.log(`✅ Welcome Qudemo detected - bypassing subscription check`);
+    } else if (!isPro || !isActive) {
       console.log(`❌ Owner's subscription expired or downgraded - Plan: ${subscriptionPlan}, Status: ${subscriptionStatus}`);
       return res.status(403).json({
         success: false,

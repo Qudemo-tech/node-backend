@@ -60,8 +60,19 @@ class QAController {
                 });
             }
 
-            // Check if user has access to the company (skip for test route)
-            if (!req.path.includes('/test/')) {
+            // ============================================
+            // WELCOME QUDEMO EXCEPTION
+            // ============================================
+            // This Qudemo is universally accessible to all logged-in users
+            // regardless of subscription plan or company ownership.
+            // It serves as the demo/welcome Qudemo shown to new users.
+            // Share Token: ca6b5a1b-0764-4e1c-bf6c-3e3c5bc93d1d
+            // Qudemo ID: 48b29bfb-b290-4669-9f25-ee411cdb1d9d
+            const WELCOME_QUDEMO_ID = '48b29bfb-b290-4669-9f25-ee411cdb1d9d';
+            const isWelcomeQudemo = qudemoId === WELCOME_QUDEMO_ID;
+            
+            // Check if user has access to the company (skip for test route and welcome qudemo)
+            if (!req.path.includes('/test/') && !isWelcomeQudemo) {
                 const { data: companyAccess, error: accessError } = await supabase
                     .from('companies')
                     .select('id')
@@ -75,6 +86,10 @@ class QAController {
                         error: 'Access denied to this qudemo'
                     });
                 }
+            }
+            
+            if (isWelcomeQudemo) {
+                console.log(`✅ Welcome Qudemo detected - bypassing ownership check for user: ${userId}`);
             }
 
             console.log(`✅ Access verified for qudemo: ${qudemo.title}`);
