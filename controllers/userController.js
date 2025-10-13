@@ -34,7 +34,29 @@ const updateUserProfile = async (req, res) => {
   try {
     const { userId } = req.params;
     const updateData = req.body;
+    const authenticatedUserId = req.user?.userId || req.user?.id;
 
+    console.log('Updating user profile:', { userId, updateData, authenticatedUserId });
+
+    // Verify user can only update their own profile
+    if (authenticatedUserId !== userId) {
+      console.error('Unauthorized: User trying to update another user\'s profile');
+      return res.status(403).json({ success: false, error: 'You can only update your own profile' });
+    }
+
+    // First check if user exists
+    const { data: existingUser, error: checkError } = await supabase
+      .from('users')
+      .select('id')
+      .eq('id', userId)
+      .single();
+
+    if (checkError || !existingUser) {
+      console.error('User not found:', userId, checkError);
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+
+    // Update the user
     const { data, error } = await supabase
       .from('users')
       .update(updateData)
@@ -43,13 +65,15 @@ const updateUserProfile = async (req, res) => {
       .single();
 
     if (error) {
-      return res.status(400).json({ error: error.message });
+      console.error('Error updating user:', error);
+      return res.status(400).json({ success: false, error: error.message });
     }
 
+    console.log('User profile updated successfully:', data);
     res.json({ success: true, data });
   } catch (error) {
     console.error('Error updating user profile:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ success: false, error: 'Internal server error' });
   }
 };
 

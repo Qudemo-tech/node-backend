@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const userController = require('../controllers/userController');
 const { validate } = require('../middleware/validation');
+const { authenticateToken } = require('../middleware/auth');
 const { 
   userProfileUpdateSchema, 
   userPreferencesSchema, 
@@ -9,10 +10,10 @@ const {
 } = require('../schemas/userSchema');
 
 // Get user profile
-router.get('/:userId/profile', userController.getUserProfile);
+router.get('/:userId/profile', authenticateToken, userController.getUserProfile);
 
 // Update user profile
-router.put('/:userId/profile', userController.updateUserProfile);
+router.put('/:userId/profile', authenticateToken, userController.updateUserProfile);
 
 // Update user preferences
 router.put('/:userId/preferences', validate(userPreferencesSchema), userController.updateUserPreferences);
