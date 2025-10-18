@@ -193,6 +193,70 @@ const updateUserSettings = async (req, res) => {
   }
 };
 
+// Upload avatar photo for AI avatar generation
+const uploadAvatarPhoto = async (req, res) => {
+  try {
+    const authenticatedUserId = req.user?.userId || req.user?.id;
+    
+    if (!req.file) {
+      return res.status(400).json({ success: false, error: 'No avatar photo uploaded' });
+    }
+    
+    console.log('Uploading avatar photo for user:', authenticatedUserId);
+    console.log('File details:', { name: req.file.originalname, size: req.file.size, type: req.file.mimetype });
+    
+    const fileName = `avatar_${authenticatedUserId}_${Date.now()}.${req.file.originalname.split('.').pop()}`;
+    
+    // Upload to Supabase Storage
+    const { data: uploadData, error: uploadError } = await supabase.storage
+      .from('avatar-photos')
+      .upload(fileName, req.file.buffer, {
+        contentType: req.file.mimetype,
+        upsert: true
+      });
+    
+    if (uploadError) {
+      console.error('Supabase storage upload error:', uploadError);
+      return res.status(500).json({ success: false, error: 'Failed to upload avatar photo to storage' });
+    }
+    
+    // Get public URL
+    const { data: publicUrlData } = supabase.storage
+      .from('avatar-photos')
+      .getPublicUrl(fileName);
+    
+    const avatar_photo_url = publicUrlData.publicUrl;
+    
+    // Update user record with avatar photo URL
+    const { data: updateData, error: updateError } = await supabase
+      .from('users')
+      .update({ avatar_photo_url })
+      .eq('id', authenticatedUserId)
+      .select()
+      .single();
+    
+    if (updateError) {
+      console.error('Error updating user with avatar URL:', updateError);
+      return res.status(500).json({ success: false, error: 'Failed to update user profile' });
+    }
+    
+    console.log('✅ Avatar photo uploaded successfully:', avatar_photo_url);
+    
+    res.json({
+      success: true,
+      message: 'Avatar photo uploaded successfully',
+      data: {
+        avatar_photo_url,
+        user: updateData
+      }
+    });
+    
+  } catch (error) {
+    console.error('Avatar upload error:', error);
+    res.status(500).json({ success: false, error: 'Failed to upload avatar photo' });
+  }
+};
+
 module.exports = {
   getUserProfile,
   updateUserProfile,
@@ -200,5 +264,6 @@ module.exports = {
   changePassword,
   uploadProfilePicture,
   getUserSettings,
-  updateUserSettings
+  updateUserSettings,
+  uploadAvatarPhoto
 }; 
