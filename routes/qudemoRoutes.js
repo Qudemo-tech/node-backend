@@ -630,19 +630,20 @@ router.post('/bulk-share', authenticateToken, async (req, res) => {
       });
     }
 
-    const subscriptionPlan = userCompany.subscription_plan || 'free';
-    const subscriptionStatus = userCompany.subscription_status || 'active';
-    const isPro = ['pro', 'enterprise'].includes(subscriptionPlan) && ['active', 'trialing', 'on_trial'].includes(subscriptionStatus);
+    // COMMENTED OUT FOR TESTING - Allow free users to use bulk share
+    // const subscriptionPlan = userCompany.subscription_plan || 'free';
+    // const subscriptionStatus = userCompany.subscription_status || 'active';
+    // const isPro = ['pro', 'enterprise'].includes(subscriptionPlan) && ['active', 'trialing', 'on_trial'].includes(subscriptionStatus);
 
-    if (!isPro) {
-      return res.status(403).json({
-        success: false,
-        error: 'Bulk Share feature requires Pro or Enterprise plan',
-        requiresUpgrade: true,
-        currentPlan: subscriptionPlan,
-        requiredPlan: 'pro'
-      });
-    }
+    // if (!isPro) {
+    //   return res.status(403).json({
+    //     success: false,
+    //     error: 'Bulk Share feature requires Pro or Enterprise plan',
+    //     requiresUpgrade: true,
+    //     currentPlan: subscriptionPlan,
+    //     requiredPlan: 'pro'
+    //   });
+    // }
 
     if (!clientData || !Array.isArray(clientData) || clientData.length === 0) {
       return res.status(400).json({

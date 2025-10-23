@@ -1830,45 +1830,46 @@ const generateShareLink = async (req, res) => {
     }
 
     // CHECK SUBSCRIPTION - Only Pro/Enterprise can share
-    const subscriptionPlan = companyAccess.subscription_plan || 'free';
-    const subscriptionStatus = companyAccess.subscription_status || 'active';
-    const isPro = ['pro', 'enterprise'].includes(subscriptionPlan);
-    const isActive = ['active', 'trialing', 'on_trial'].includes(subscriptionStatus);
+    // COMMENTED OUT FOR TESTING - Allow free users to share
+    // const subscriptionPlan = companyAccess.subscription_plan || 'free';
+    // const subscriptionStatus = companyAccess.subscription_status || 'active';
+    // const isPro = ['pro', 'enterprise'].includes(subscriptionPlan);
+    // const isActive = ['active', 'trialing', 'on_trial'].includes(subscriptionStatus);
 
-    console.log(`🔗 Subscription check - Plan: ${subscriptionPlan}, Status: ${subscriptionStatus}`);
+    // console.log(`🔗 Subscription check - Plan: ${subscriptionPlan}, Status: ${subscriptionStatus}`);
 
-    if (!isPro || !isActive) {
-      console.log(`❌ Subscription required - Current plan: ${subscriptionPlan}, Status: ${subscriptionStatus}`);
-      
-      // Check if subscription was cancelled/expired
-      const isCancelled = ['cancelled', 'expired', 'past_due'].includes(subscriptionStatus);
-      
-      let errorMessage, upgradeMessage;
-      
-      if (isCancelled && subscriptionPlan === 'enterprise') {
-        errorMessage = 'Your Enterprise plan has been cancelled';
-        upgradeMessage = 'Your Enterprise subscription has been cancelled. Renew your subscription to access share functionality and advanced analytics.';
-      } else if (isCancelled && subscriptionPlan === 'pro') {
-        errorMessage = 'Your Pro plan has been cancelled';
-        upgradeMessage = 'Your Pro subscription has been cancelled. Renew your subscription to access share functionality.';
-      } else if (subscriptionPlan === 'free') {
-        errorMessage = 'Share functionality requires Pro or Enterprise plan';
-        upgradeMessage = 'Upgrade to Pro or Enterprise to generate shareable links for your QuDemos.';
-      } else {
-        errorMessage = 'Share functionality requires Pro or Enterprise plan';
-        upgradeMessage = 'Upgrade to Pro or Enterprise to generate shareable links for your QuDemos.';
-      }
-      
-      return res.status(403).json({
-        success: false,
-        error: errorMessage,
-        requiresUpgrade: true,
-        currentPlan: subscriptionPlan,
-        subscriptionStatus: subscriptionStatus,
-        isCancelled: isCancelled,
-        message: upgradeMessage
-      });
-    }
+    // if (!isPro || !isActive) {
+    //   console.log(`❌ Subscription required - Current plan: ${subscriptionPlan}, Status: ${subscriptionStatus}`);
+    //   
+    //   // Check if subscription was cancelled/expired
+    //   const isCancelled = ['cancelled', 'expired', 'past_due'].includes(subscriptionStatus);
+    //   
+    //   let errorMessage, upgradeMessage;
+    //   
+    //   if (isCancelled && subscriptionPlan === 'enterprise') {
+    //     errorMessage = 'Your Enterprise plan has been cancelled';
+    //     upgradeMessage = 'Your Enterprise subscription has been cancelled. Renew your subscription to access share functionality and advanced analytics.';
+    //   } else if (isCancelled && subscriptionPlan === 'pro') {
+    //     errorMessage = 'Your Pro plan has been cancelled';
+    //     upgradeMessage = 'Your Pro subscription has been cancelled. Renew your subscription to access share functionality.';
+    //   } else if (subscriptionPlan === 'free') {
+    //     errorMessage = 'Share functionality requires Pro or Enterprise plan';
+    //     upgradeMessage = 'Upgrade to Pro or Enterprise to generate shareable links for your QuDemos.';
+    //   } else {
+    //     errorMessage = 'Share functionality requires Pro or Enterprise plan';
+    //     upgradeMessage = 'Upgrade to Pro or Enterprise to generate shareable links for your QuDemos.';
+    //   }
+    //   
+    //   return res.status(403).json({
+    //     success: false,
+    //     error: errorMessage,
+    //     requiresUpgrade: true,
+    //     currentPlan: subscriptionPlan,
+    //     subscriptionStatus: subscriptionStatus,
+    //     isCancelled: isCancelled,
+    //     message: upgradeMessage
+    //   });
+    // }
 
     // Generate a new unique share token every time
     console.log(`🔗 Generating new unique share token for qudemo: ${id}`);
@@ -2030,33 +2031,34 @@ const getSharedQudemo = async (req, res) => {
     }
 
     // CHECK SUBSCRIPTION STATUS - Owner must have active Pro/Enterprise (skip for welcome Qudemo)
-    if (!isWelcomeQudemo) {
-      const subscriptionPlan = company?.subscription_plan || 'free';
-      const subscriptionStatus = company?.subscription_status || 'active';
-      const isPro = ['pro', 'enterprise'].includes(subscriptionPlan);
-      const isActive = ['active', 'trialing', 'on_trial'].includes(subscriptionStatus);
+    // COMMENTED OUT FOR TESTING - Allow free users' shared links to work
+    // if (!isWelcomeQudemo) {
+    //   const subscriptionPlan = company?.subscription_plan || 'free';
+    //   const subscriptionStatus = company?.subscription_status || 'active';
+    //   const isPro = ['pro', 'enterprise'].includes(subscriptionPlan);
+    //   const isActive = ['active', 'trialing', 'on_trial'].includes(subscriptionStatus);
 
-      console.log(`🔍 Subscription check for shared QuDemo - Plan: ${subscriptionPlan}, Status: ${subscriptionStatus}`);
+    //   console.log(`🔍 Subscription check for shared QuDemo - Plan: ${subscriptionPlan}, Status: ${subscriptionStatus}`);
 
-      if (!isPro || !isActive) {
-        console.log(`❌ Owner's subscription expired or downgraded - Plan: ${subscriptionPlan}, Status: ${subscriptionStatus}`);
-        return res.status(403).json({
-          success: false,
-          error: 'This QuDemo is no longer available',
-          message: 'The owner\'s subscription has ended or been downgraded',
-          subscriptionExpired: true
-        });
-      }
+    //   if (!isPro || !isActive) {
+    //     console.log(`❌ Owner's subscription expired or downgraded - Plan: ${subscriptionPlan}, Status: ${subscriptionStatus}`);
+    //     return res.status(403).json({
+    //       success: false,
+    //       error: 'This QuDemo is no longer available',
+    //       message: 'The owner\'s subscription has ended or been downgraded',
+    //       subscriptionExpired: true
+    //     });
+    //   }
 
-      // Check if share is expired
-      if (new Date(share.expires_at) < new Date()) {
-        console.log(`❌ Share token expired: ${shareToken}`);
-        return res.status(410).json({
-          success: false,
-          error: 'Share link has expired'
-        });
-      }
-    }
+    //   // Check if share is expired
+    //   if (new Date(share.expires_at) < new Date()) {
+    //     console.log(`❌ Share token expired: ${shareToken}`);
+    //     return res.status(410).json({
+    //       success: false,
+    //       error: 'Share link has expired'
+    //     });
+    //   }
+    // }
 
     if (!qudemo || !qudemo.is_active) {
       console.log(`❌ Qudemo not found or inactive: ${qudemo?.id}`);
