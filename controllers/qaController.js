@@ -218,7 +218,11 @@ class QAController {
                         search_score: response.data.search_score,
                         hybrid_scores: response.data.hybrid_scores,
                         difficulty_level: response.data.difficulty_level,
-                        estimated_time: response.data.estimated_time
+                        estimated_time: response.data.estimated_time,
+                        // Avatar video fields for AI-generated video answers
+                        has_avatar_video: response.data.has_avatar_video,
+                        avatar_video_url: response.data.avatar_video_url,
+                        faq_id: response.data.faq_id
                     };
                     
                     console.log(`🎬 Final response to frontend:`, JSON.stringify(finalResponse, null, 2));

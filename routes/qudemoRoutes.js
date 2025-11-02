@@ -29,7 +29,12 @@ const {
   getQudemoDataForPython,
   generateShareLink,
   getSharedQudemo,
-  getQudemoPythonData
+  getQudemoPythonData,
+  uploadPresenterPhoto,
+  presenterPhotoUpload,
+  heygenCallback,
+  generateWidgetCode,
+  getWidgetConfig
 } = require('../controllers/qudemoController');
 
 // Test endpoint without authentication (for debugging)
@@ -545,6 +550,12 @@ router.get('/python-data/:qudemoId', async (req, res) => {
 
 // Create new qudemo
 router.post('/', authenticateToken, createQudemo);
+
+// Upload presenter photo for avatar video generation
+router.post('/upload-presenter-photo', authenticateToken, presenterPhotoUpload.single('presenterPhoto'), uploadPresenterPhoto);
+
+// HeyGen callback for avatar video generation (no auth - called by Zapier)
+router.post('/heygen-callback', heygenCallback);
 
 // Update qudemo
 router.put('/:id', authenticateToken, updateQudemo);
@@ -1961,11 +1972,12 @@ router.post('/:id/processing-complete', async (req, res) => {
           const videoData = {
             qudemo_id: qudemo_id,
             video_url: videoUrl,
-            video_type: videoUrl.includes('youtube') ? 'youtube' : 
+            video_type: (videoUrl.includes('youtube') || videoUrl.includes('youtu.be')) ? 'youtube' : 
                        videoUrl.includes('loom') ? 'loom' : 
                        videoUrl.includes('vimeo') ? 'vimeo' : 'upload',
             title: `Video ${i + 1}`,
             order_index: i + 1,
+            status: 'processed',
             metadata: { source: 'python_processing_complete' }
           };
           
@@ -2073,6 +2085,26 @@ router.post('/:id/processing-complete', async (req, res) => {
     }
     
     console.log(`✅ Processing completion notification handled successfully for qudemo ${qudemo_id}`);
+    
+    // Trigger FAQ generation for avatar videos (background process)
+    console.log(`🤖 Triggering FAQ generation for avatar videos for qudemo ${qudemo_id}`);
+    const pythonApiUrl = process.env.PYTHON_API_BASE_URL || 'http://localhost:5001';
+    const fetch = (await import('node-fetch')).default;
+    
+    fetch(`${pythonApiUrl}/generate-faqs/${company_name}/${qudemo_id}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    })
+      .then(response => {
+        if (response.ok) {
+          console.log(`✅ FAQ generation triggered successfully for qudemo ${qudemo_id}`);
+        } else {
+          console.error(`❌ Failed to trigger FAQ generation for qudemo ${qudemo_id}: ${response.status}`);
+        }
+      })
+      .catch(error => {
+        console.error(`❌ Error triggering FAQ generation for qudemo ${qudemo_id}:`, error.message);
+      });
     
     res.json({
       success: true,
@@ -2564,11 +2596,17 @@ router.delete('/bulk-uploads/:uploadId', authenticateToken, async (req, res) => 
   }
 });
 
+// Widget generation routes
+router.post('/:qudemoId/generate-widget', authenticateToken, generateWidgetCode);
+router.get('/:qudemoId/widget-config', authenticateToken, getWidgetConfig);
+
 // Log all registered routes for debugging
 console.log('🔍 Registered qudemo routes:');
 console.log('🔍 - GET /bulk-uploads-test (no auth)');
 console.log('🔍 - GET /bulk-uploads (with auth)');
 console.log('🔍 - GET /bulk-uploads/:uploadId/download (with auth)');
 console.log('🔍 - DELETE /bulk-uploads/:uploadId (with auth)');
+console.log('🔍 - POST /:qudemoId/generate-widget (with auth)');
+console.log('🔍 - GET /:qudemoId/widget-config (with auth)');
 
 module.exports = router; 

@@ -1,6 +1,11 @@
 const { createClient } = require('@supabase/supabase-js');
 const { logCompanyOperation } = require('../middleware/logging');
 const { ACTIONS, RESOURCES } = require('../services/companyLogger');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
+const fsPromises = require('fs').promises;
+const axios = require('axios');
 
 // Create Supabase client
 const supabase = createClient(
@@ -8,6 +13,23 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 const { v4: uuidv4 } = require('uuid');
+
+// Configure multer for presenter photo uploads (memory storage)
+const presenterPhotoStorage = multer.memoryStorage();
+const presenterPhotoUpload = multer({
+  storage: presenterPhotoStorage,
+  limits: {
+    fileSize: 5 * 1024 * 1024, // 5MB limit
+  },
+  fileFilter: (req, file, cb) => {
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+    if (allowedTypes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Invalid file type. Only JPG, PNG, and WEBP images are allowed.'), false);
+    }
+  }
+});
 
 // Get all qudemos for a company
 const getQudemos = async (req, res) => {
@@ -304,8 +326,9 @@ const getQudemo = async (req, res) => {
     
     res.json({
       success: true,
-      data: {
+      qudemo: {
         ...qudemo,
+        company_name: companyAccess.name,
         videos: videos || [],
         knowledge_sources: uniqueKnowledgeSources,
         analytics: analytics || { views: 0, interactions: 0, completion_rate: 0 }
@@ -2251,6 +2274,401 @@ const getQudemoPythonData = async (req, res) => {
   }
 };
 
+// Upload presenter photo for avatar video generation
+const uploadPresenterPhoto = async (req, res) => {
+  try {
+    const { qudemoId, companyName } = req.body;
+    const file = req.file;
+
+    if (!file) {
+      return res.status(400).json({
+        success: false,
+        error: 'No file provided'
+      });
+    }
+
+    if (!qudemoId || !companyName) {
+      return res.status(400).json({
+        success: false,
+        error: 'QuDemo ID and company name are required'
+      });
+    }
+
+    console.log(`📸 Uploading presenter photo for QuDemo: ${qudemoId}, Company: ${companyName}`);
+
+    // Verify QuDemo exists
+    const { data: qudemo, error: qudemoError } = await supabase
+      .from('qudemos_new')
+      .select('id, title, presenter_name')
+      .eq('id', qudemoId)
+      .single();
+
+    if (qudemoError || !qudemo) {
+      return res.status(404).json({
+        success: false,
+        error: 'QuDemo not found'
+      });
+    }
+
+    // Forward file to Python backend for GCS storage
+    const FormData = require('form-data');
+    const formData = new FormData();
+    formData.append('presenterPhoto', file.buffer, {
+      filename: file.originalname,
+      contentType: file.mimetype
+    });
+    formData.append('qudemoId', qudemoId);
+    formData.append('companyName', companyName);
+
+    const pythonApiUrl = process.env.PYTHON_API_BASE_URL || 'http://localhost:5001';
+    const pythonResponse = await axios.post(
+      `${pythonApiUrl}/upload-presenter-photo`,
+      formData,
+      {
+        headers: {
+          ...formData.getHeaders()
+        },
+        maxBodyLength: Infinity,
+        maxContentLength: Infinity
+      }
+    );
+
+    if (!pythonResponse.data || !pythonResponse.data.success) {
+      throw new Error('Python backend failed to upload presenter photo');
+    }
+
+    const photoUrl = pythonResponse.data.presenter_photo_url;
+
+    // Update QuDemo record with presenter photo URL
+    const { error: updateError } = await supabase
+      .from('qudemos_new')
+      .update({
+        presenter_photo_url: photoUrl,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', qudemoId);
+
+    if (updateError) {
+      console.error('❌ Error updating QuDemo with presenter photo:', updateError);
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to update QuDemo with presenter photo'
+      });
+    }
+
+    console.log(`✅ Presenter photo uploaded successfully: ${photoUrl}`);
+
+    return res.status(200).json({
+      success: true,
+      message: 'Presenter photo uploaded successfully',
+      data: {
+        presenterPhotoUrl: photoUrl,
+        qudemoId: qudemoId
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error uploading presenter photo:', error);
+    return res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to upload presenter photo'
+    });
+  }
+};
+
+// HeyGen callback handler for avatar video generation
+const heygenCallback = async (req, res) => {
+  try {
+    const { qudemoId, faqId, heygenVideoUrl, heygenVideoId, status } = req.body;
+    
+    console.log(`📹 HeyGen callback received for QuDemo: ${qudemoId}, FAQ: ${faqId}`);
+    console.log(`📊 Status: ${status}, Video URL: ${heygenVideoUrl}`);
+    
+    if (!qudemoId || !faqId) {
+      return res.status(400).json({
+        success: false,
+        error: 'QuDemo ID and FAQ ID are required'
+      });
+    }
+    
+    // Update avatar_videos table
+    const { error: updateError } = await supabase
+      .from('avatar_videos')
+      .update({
+        video_url: heygenVideoUrl,
+        status: status || 'completed',
+        updated_at: new Date().toISOString()
+      })
+      .eq('qudemo_id', qudemoId)
+      .eq('faq_id', faqId);
+    
+    if (updateError) {
+      console.error(`❌ Error updating avatar video: ${updateError.message}`);
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to update avatar video record'
+      });
+    }
+    
+    console.log(`✅ Updated avatar video record for ${faqId}`);
+    
+    // Check if all videos for this QuDemo are completed
+    const { data: allVideos, error: fetchError } = await supabase
+      .from('avatar_videos')
+      .select('status')
+      .eq('qudemo_id', qudemoId);
+    
+    if (!fetchError && allVideos) {
+      const totalVideos = allVideos.length;
+      const completedVideos = allVideos.filter(v => v.status === 'completed').length;
+      
+      console.log(`📊 Avatar video progress: ${completedVideos}/${totalVideos} completed`);
+      
+      // Update QuDemo status
+      const allCompleted = allVideos.every(v => v.status === 'completed');
+      
+      if (allCompleted) {
+        const { error: qudemoUpdateError } = await supabase
+          .from('qudemos_new')
+          .update({
+            avatar_generation_status: 'completed',
+            has_avatar_videos: true,
+            avatar_videos_completed: completedVideos,
+            avatar_generation_completed_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', qudemoId);
+        
+        if (qudemoUpdateError) {
+          console.error(`❌ Error updating QuDemo status: ${qudemoUpdateError.message}`);
+        } else {
+          console.log(`🎉 All avatar videos completed for QuDemo: ${qudemoId}`);
+        }
+      } else {
+        // Update progress
+        const { error: progressError } = await supabase
+          .from('qudemos_new')
+          .update({
+            avatar_generation_status: 'processing',
+            avatar_videos_completed: completedVideos,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', qudemoId);
+        
+        if (progressError) {
+          console.error(`❌ Error updating progress: ${progressError.message}`);
+        }
+      }
+    }
+    
+    return res.status(200).json({
+      success: true,
+      message: 'Avatar video callback processed successfully',
+      qudemoId: qudemoId,
+      faqId: faqId
+    });
+    
+  } catch (error) {
+    console.error('❌ Error in HeyGen callback:', error);
+    return res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to process HeyGen callback'
+    });
+  }
+};
+
+// Generate widget code for embedding QuDemo on external websites
+const generateWidgetCode = async (req, res) => {
+  try {
+    const { qudemoId } = req.params;
+    const { theme = 'light', position = 'bottom-right', size = 'medium' } = req.body;
+    const authUserId = req.user.userId || req.user.id;
+
+    console.log('🎨 Generating widget code for QuDemo:', qudemoId);
+
+    // Verify QuDemo exists and get company name
+    const { data: qudemo, error: qudemoError } = await supabase
+      .from('qudemos_new')
+      .select(`
+        id, 
+        title, 
+        company_id,
+        companies!inner(name)
+      `)
+      .eq('id', qudemoId)
+      .single();
+
+    if (qudemoError || !qudemo) {
+      console.error('❌ Error fetching QuDemo:', qudemoError);
+      return res.status(404).json({
+        success: false,
+        error: 'QuDemo not found',
+        details: qudemoError?.message
+      });
+    }
+
+    // Extract company name from joined table
+    const companyName = qudemo.companies?.name || 'Unknown Company';
+    const qudemoTitle = qudemo.title;
+    console.log('✅ QuDemo found:', qudemoTitle, '- Company:', companyName);
+
+    // Check if widget config already exists
+    let { data: existingWidget, error: widgetCheckError } = await supabase
+      .from('widget_configs')
+      .select('*')
+      .eq('qudemo_id', qudemoId)
+      .eq('is_active', true)
+      .single();
+
+    let widgetConfig;
+
+    if (existingWidget) {
+      // Update existing widget config
+      const { data: updated, error: updateError } = await supabase
+        .from('widget_configs')
+        .update({
+          theme,
+          position,
+          size,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', existingWidget.id)
+        .select()
+        .single();
+
+      if (updateError) {
+        console.error('❌ Error updating widget config:', updateError);
+        return res.status(500).json({
+          success: false,
+          error: 'Failed to update widget configuration'
+        });
+      }
+
+      widgetConfig = updated;
+      console.log('✅ Updated existing widget config');
+    } else {
+      // Generate unique widget token
+      const widgetToken = `${companyName.toLowerCase().replace(/\s+/g, '-')}-${qudemoId.slice(0, 8)}`;
+
+      // Create new widget config
+      const { data: newWidget, error: insertError } = await supabase
+        .from('widget_configs')
+        .insert({
+          qudemo_id: qudemoId,
+          company_id: qudemo.company_id,
+          company_name: companyName,
+          widget_token: widgetToken,
+          theme,
+          position,
+          size,
+          is_active: true
+        })
+        .select()
+        .single();
+
+      if (insertError) {
+        console.error('❌ Error creating widget config:', insertError);
+        return res.status(500).json({
+          success: false,
+          error: 'Failed to create widget configuration'
+        });
+      }
+
+      widgetConfig = newWidget;
+      console.log('✅ Created new widget config');
+    }
+
+    // Generate widget embed code
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    const widgetCode = `<!-- Qudemo Widget -->
+<script>
+  (function(d, s, id) {
+    var js, qjs = d.getElementsByTagName(s)[0];
+    if (d.getElementById(id)) return;
+    js = d.createElement(s);
+    js.id = id;
+    js.src = "${frontendUrl}/widget-loader.js";
+    js.setAttribute('data-qudemo-id', '${qudemo.id}');
+    js.setAttribute('data-company-name', '${companyName}');
+    js.setAttribute('data-theme', '${theme}');
+    js.setAttribute('data-position', '${position}');
+    js.setAttribute('data-size', '${size}');
+    qjs.parentNode.insertBefore(js, qjs);
+  }(document, 'script', 'qudemo-widget-${widgetConfig.widget_token}'));
+</script>
+<!-- End Qudemo Widget -->`;
+
+    const iframeCode = `<!-- Qudemo Widget (iFrame Alternative) -->
+<iframe 
+  src="${frontendUrl}/widget-embed/${qudemo.id}?theme=${theme}&position=${position}&size=${size}&company=${encodeURIComponent(companyName)}" 
+  style="position: fixed; ${position.includes('right') ? 'right: 20px' : 'left: 20px'}; bottom: 20px; width: ${size === 'large' ? '400px' : size === 'small' ? '300px' : '350px'}; height: 600px; border: none; border-radius: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.15); z-index: 999999;"
+  allow="microphone"
+></iframe>
+<!-- End Qudemo Widget -->`;
+
+    console.log('✅ Generated widget code successfully');
+
+    res.json({
+      success: true,
+      widgetConfig: {
+        id: widgetConfig.id,
+        widgetToken: widgetConfig.widget_token,
+        theme: widgetConfig.theme,
+        position: widgetConfig.position,
+        size: widgetConfig.size
+      },
+      widgetCode,
+      iframeCode,
+      playgroundUrl: `${frontendUrl}/widget-playground/${qudemo.id}`,
+      qudemo: {
+        id: qudemo.id,
+        name: qudemoTitle,
+        companyName: companyName
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error generating widget code:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to generate widget code'
+    });
+  }
+};
+
+// Get widget configuration by QuDemo ID
+const getWidgetConfig = async (req, res) => {
+  try {
+    const { qudemoId } = req.params;
+
+    const { data: widgetConfig, error } = await supabase
+      .from('widget_configs')
+      .select('*')
+      .eq('qudemo_id', qudemoId)
+      .eq('is_active', true)
+      .single();
+
+    if (error || !widgetConfig) {
+      return res.status(404).json({
+        success: false,
+        error: 'Widget configuration not found'
+      });
+    }
+
+    res.json({
+      success: true,
+      widgetConfig
+    });
+
+  } catch (error) {
+    console.error('❌ Error fetching widget config:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch widget configuration'
+    });
+  }
+};
+
 module.exports = {
   getQudemos,
   getQudemo,
@@ -2266,5 +2684,10 @@ module.exports = {
   getQudemoDataForPython,
   generateShareLink,
   getSharedQudemo,
-  getQudemoPythonData
+  getQudemoPythonData,
+  uploadPresenterPhoto,
+  presenterPhotoUpload, // Export multer middleware
+  heygenCallback,
+  generateWidgetCode,
+  getWidgetConfig
 };
