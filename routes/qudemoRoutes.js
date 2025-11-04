@@ -839,6 +839,124 @@ router.post('/bulk-share', authenticateToken, async (req, res) => {
 // Get shared qudemo (public access - no authentication required)
 router.get('/share/:shareToken', getSharedQudemo);
 
+// Get qudemo by ID (public access - no authentication required, for widget playground)
+router.get('/public/:qudemoId', async (req, res) => {
+  try {
+    const { qudemoId } = req.params;
+    
+    console.log(`🌐 Public qudemo request for ID: ${qudemoId}`);
+    
+    // First check if qudemo exists and is active (without company join)
+    const { data: qudemoCheck, error: checkError } = await supabase
+      .from('qudemos_new')
+      .select('id, title, company_id, is_active, status')
+      .eq('id', qudemoId)
+      .single();
+
+    if (checkError) {
+      console.log(`❌ QuDemo lookup error:`, checkError);
+      return res.status(404).json({
+        success: false,
+        error: 'QuDemo not found',
+        details: checkError.message
+      });
+    }
+
+    if (!qudemoCheck) {
+      console.log(`❌ QuDemo not found: ${qudemoId}`);
+      return res.status(404).json({
+        success: false,
+        error: 'QuDemo not found'
+      });
+    }
+
+    if (!qudemoCheck.is_active) {
+      console.log(`❌ QuDemo not active: ${qudemoId} (is_active: ${qudemoCheck.is_active})`);
+      return res.status(404).json({
+        success: false,
+        error: 'QuDemo is not active'
+      });
+    }
+
+    console.log(`✅ QuDemo found: ${qudemoCheck.title}, company_id: ${qudemoCheck.company_id}, is_active: ${qudemoCheck.is_active}`);
+    
+    // Fetch qudemo with company information (without nested videos/knowledge to avoid FK ambiguity)
+    const { data: qudemo, error: qudemoError } = await supabase
+      .from('qudemos_new')
+      .select(`
+        *,
+        companies!inner(
+          id,
+          name,
+          display_name
+        )
+      `)
+      .eq('id', qudemoId)
+      .eq('is_active', true)
+      .single();
+
+    if (qudemoError) {
+      console.error(`❌ Error fetching QuDemo data:`, qudemoError);
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to fetch QuDemo data',
+        details: qudemoError.message
+      });
+    }
+
+    if (!qudemo) {
+      console.log(`❌ QuDemo data not returned: ${qudemoId}`);
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to load QuDemo data'
+      });
+    }
+
+    // Fetch videos separately to avoid foreign key ambiguity
+    const { data: videos, error: videosError } = await supabase
+      .from('qudemo_videos')
+      .select('id, video_url, video_type, title, order_index')
+      .eq('qudemo_id', qudemoId)
+      .order('order_index', { ascending: true });
+
+    if (videosError) {
+      console.error(`⚠️ Error fetching videos:`, videosError);
+    }
+
+    // Fetch knowledge sources separately
+    const { data: knowledgeSources, error: knowledgeError } = await supabase
+      .from('qudemo_knowledge_sources')
+      .select('id, source_type, source_url, title, description')
+      .eq('qudemo_id', qudemoId);
+
+    if (knowledgeError) {
+      console.error(`⚠️ Error fetching knowledge sources:`, knowledgeError);
+    }
+
+    // Format the response similar to authenticated endpoint
+    const response = {
+      success: true,
+      qudemo: {
+        ...qudemo,
+        company_name: qudemo.companies?.name || 'Unknown',
+        videos: videos || [],
+        knowledge_sources: knowledgeSources || []
+      }
+    };
+
+    console.log(`✅ Public qudemo found: ${qudemo.title}, videos: ${response.qudemo.videos.length}, knowledge_sources: ${response.qudemo.knowledge_sources.length}`);
+    res.json(response);
+
+  } catch (error) {
+    console.error('❌ Error fetching public qudemo:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch QuDemo',
+      details: error.message
+    });
+  }
+});
+
 // Get suggested questions for shared qudemo (public access - no authentication required)
 router.get('/share/:shareToken/suggested-questions', async (req, res) => {
   try {
