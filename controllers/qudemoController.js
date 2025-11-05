@@ -497,7 +497,7 @@ const deleteQudemoCompletely = async (qudemoId) => {
 // Create new qudemo
 const createQudemo = async (req, res) => {
   try {
-    const { title, description, companyId, videos, knowledgeSources, calendlyLink } = req.body;
+    const { title, description, companyId, videos, knowledgeSources, calendlyLink, voiceId } = req.body;
     const authUserId = req.user.userId || req.user.id;
 
     // First try to find user by Database ID (for local JWT tokens)
@@ -648,6 +648,7 @@ const createQudemo = async (req, res) => {
       created_by: userId,
       status: 'active',
       calendly_link: calendlyLink || null,
+      voice_id: voiceId || '01d674cfd32b4728a3fddd21b7e7d543', // Default voice if not provided
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     };
