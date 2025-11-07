@@ -2580,7 +2580,12 @@ const generateWidgetCode = async (req, res) => {
     }
 
     // Generate widget embed code
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    // Use the origin from the request to support both production and pre-production domains
+    const requestOrigin = req.get('origin') || req.get('referer')?.split('/').slice(0, 3).join('/');
+    const frontendUrl = requestOrigin || process.env.FRONTEND_URL || 'http://localhost:3000';
+    
+    console.log('🌐 Using frontend URL:', frontendUrl, '(from request origin)');
+    
     const widgetCode = `<!-- Qudemo Widget -->
 <script>
   (function(d, s, id) {
