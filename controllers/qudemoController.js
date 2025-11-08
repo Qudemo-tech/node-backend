@@ -497,7 +497,7 @@ const deleteQudemoCompletely = async (qudemoId) => {
 // Create new qudemo
 const createQudemo = async (req, res) => {
   try {
-    const { title, description, companyId, videos, knowledgeSources, calendlyLink, voiceId } = req.body;
+    const { title, description, companyId, videos, knowledgeSources, calendlyLink, voiceId, collectUserInfo, collectName, collectEmail, collectCompany } = req.body;
     const authUserId = req.user.userId || req.user.id;
 
     // First try to find user by Database ID (for local JWT tokens)
@@ -649,6 +649,10 @@ const createQudemo = async (req, res) => {
       status: 'active',
       calendly_link: calendlyLink || null,
       voice_id: voiceId || '01d674cfd32b4728a3fddd21b7e7d543', // Default voice if not provided
+      collect_user_info: collectUserInfo || false,
+      collect_name: collectUserInfo ? (collectName || false) : false,
+      collect_email: collectUserInfo ? (collectEmail || false) : false,
+      collect_company: collectUserInfo ? (collectCompany || false) : false,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     };
@@ -2675,6 +2679,123 @@ const getWidgetConfig = async (req, res) => {
   }
 };
 
+// Get visitor interactions for a QuDemo
+const getVisitorInteractions = async (req, res) => {
+  try {
+    const { qudemoId } = req.params;
+    const authUserId = req.user.userId || req.user.id;
+
+    console.log('🔍 Fetching visitor interactions for QuDemo:', qudemoId);
+
+    // Verify user owns this QuDemo
+    const { data: qudemo, error: qudemoError } = await supabase
+      .from('qudemos_new')
+      .select('id, company_id, title, companies!inner(user_id)')
+      .eq('id', qudemoId)
+      .single();
+
+    if (qudemoError || !qudemo) {
+      return res.status(404).json({
+        success: false,
+        error: 'QuDemo not found'
+      });
+    }
+
+    // Check ownership
+    const qudemoOwnerId = qudemo.companies.user_id;
+    if (qudemoOwnerId !== authUserId) {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied'
+      });
+    }
+
+    // Fetch all visitor interactions
+    console.log(`🔍 Fetching visitor interactions for QuDemo: ${qudemoId}`);
+    const { data: interactions, error: interactionsError } = await supabase
+      .from('visitor_interactions')
+      .select('*')
+      .eq('qudemo_id', qudemoId)
+      .order('created_at', { ascending: false });
+
+    if (interactionsError) {
+      console.error('❌ Error fetching interactions:', interactionsError);
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to fetch interactions'
+      });
+    }
+
+    console.log(`📊 Found ${interactions ? interactions.length : 0} total interactions`);
+    if (interactions && interactions.length > 0) {
+      console.log('Sample interaction:', interactions[0]);
+    }
+
+    // Handle case when no interactions exist
+    if (!interactions || interactions.length === 0) {
+      console.log('⚠️ No interactions found for this QuDemo');
+      return res.json({
+        success: true,
+        data: {
+          qudemo_title: qudemo.title,
+          sessions: [],
+          total_sessions: 0,
+          total_interactions: 0
+        }
+      });
+    }
+
+    // Group interactions by session
+    const sessionMap = {};
+    interactions.forEach(interaction => {
+      const sessionId = interaction.session_id;
+      if (!sessionMap[sessionId]) {
+        sessionMap[sessionId] = {
+          session_id: sessionId,
+          visitor_name: interaction.visitor_name,
+          visitor_email: interaction.visitor_email,
+          visitor_company: interaction.visitor_company,
+          first_interaction_at: interaction.created_at,
+          interactions: []
+        };
+      }
+      sessionMap[sessionId].interactions.push({
+        id: interaction.id,
+        question: interaction.question,
+        answer: interaction.answer,
+        faq_id: interaction.faq_id,
+        source: interaction.source,
+        time_spent: interaction.time_spent || 0,
+        created_at: interaction.created_at
+      });
+    });
+
+    // Convert to array and sort by most recent
+    const sessions = Object.values(sessionMap).sort((a, b) => 
+      new Date(b.first_interaction_at) - new Date(a.first_interaction_at)
+    );
+
+    console.log(`✅ Found ${sessions.length} visitor sessions with ${interactions.length} total interactions`);
+
+    res.json({
+      success: true,
+      data: {
+        qudemo_title: qudemo.title,
+        sessions,
+        total_sessions: sessions.length,
+        total_interactions: interactions.length
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error in getVisitorInteractions:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error'
+    });
+  }
+};
+
 module.exports = {
   getQudemos,
   getQudemo,
@@ -2695,5 +2816,6 @@ module.exports = {
   presenterPhotoUpload, // Export multer middleware
   heygenCallback,
   generateWidgetCode,
-  getWidgetConfig
+  getWidgetConfig,
+  getVisitorInteractions
 };

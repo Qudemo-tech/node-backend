@@ -34,7 +34,8 @@ const {
   presenterPhotoUpload,
   heygenCallback,
   generateWidgetCode,
-  getWidgetConfig
+  getWidgetConfig,
+  getVisitorInteractions
 } = require('../controllers/qudemoController');
 
 // Test endpoint without authentication (for debugging)
@@ -1284,6 +1285,108 @@ router.get('/public-qa/:qudemoId', authenticateToken, async (req, res) => {
   }
 });
 
+// Get visitor interactions for a QuDemo (for user data collection feature)
+router.get('/visitor-interactions/:qudemoId', authenticateToken, async (req, res) => {
+  try {
+    const { qudemoId } = req.params;
+    const authUserId = req.user.userId || req.user.id;
+    
+    console.log(`👥 Fetching visitor interactions for QuDemo: ${qudemoId}`);
+    
+    // Verify user owns this QuDemo
+    const { data: qudemo, error: qudemoError } = await supabase
+      .from('qudemos_new')
+      .select('id, company_id, companies!inner(user_id)')
+      .eq('id', qudemoId)
+      .single();
+    
+    if (qudemoError || !qudemo) {
+      console.error(`❌ QuDemo not found: ${qudemoId}`, qudemoError);
+      return res.status(404).json({
+        success: false,
+        error: 'QuDemo not found'
+      });
+    }
+    
+    // Check ownership
+    if (qudemo.companies.user_id !== authUserId) {
+      console.error(`❌ Access denied for user ${authUserId} to QuDemo ${qudemoId}`);
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied to this QuDemo'
+      });
+    }
+    
+    // Fetch all visitor interactions for this QuDemo
+    const { data: interactions, error: interactionsError } = await supabase
+      .from('visitor_interactions')
+      .select('*')
+      .eq('qudemo_id', qudemoId)
+      .order('created_at', { ascending: false });
+    
+    if (interactionsError) {
+      console.error(`❌ Error fetching visitor interactions:`, interactionsError);
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to fetch visitor interactions',
+        details: interactionsError.message
+      });
+    }
+    
+    // Group interactions by session
+    const sessionMap = {};
+    interactions.forEach(interaction => {
+      const sessionId = interaction.session_id;
+      if (!sessionMap[sessionId]) {
+        sessionMap[sessionId] = {
+          session_id: sessionId,
+          visitor_name: interaction.visitor_name,
+          visitor_email: interaction.visitor_email,
+          visitor_company: interaction.visitor_company,
+          first_interaction_at: interaction.created_at,
+          interactions: []
+        };
+      }
+      sessionMap[sessionId].interactions.push({
+        id: interaction.id,
+        question: interaction.question,
+        answer: interaction.answer,
+        faq_id: interaction.faq_id,
+        source: interaction.source,
+        created_at: interaction.created_at
+      });
+      
+      // Update first interaction time if this is earlier
+      if (new Date(interaction.created_at) < new Date(sessionMap[sessionId].first_interaction_at)) {
+        sessionMap[sessionId].first_interaction_at = interaction.created_at;
+      }
+    });
+    
+    // Convert to array and sort by most recent first
+    const sessions = Object.values(sessionMap).sort((a, b) => 
+      new Date(b.first_interaction_at) - new Date(a.first_interaction_at)
+    );
+    
+    console.log(`✅ Found ${interactions.length} interactions across ${sessions.length} sessions`);
+    
+    res.json({
+      success: true,
+      data: {
+        total_interactions: interactions.length,
+        total_sessions: sessions.length,
+        sessions: sessions
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ Error fetching visitor interactions:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch visitor interactions'
+    });
+  }
+});
+
 // Get public Q&A statistics for a company (authenticated users only)
 router.get('/public-qa-stats/:companyId', authenticateToken, async (req, res) => {
   try {
@@ -1329,6 +1432,25 @@ router.post('/process-content/:companyName/:qudemoId', authenticateToken, async 
     console.log(`🚀 Processing content for qudemo ${qudemoId} in company ${companyName}`);
     console.log(`📹 Videos: ${video_urls?.length || 0}, 🌐 Websites: ${website_urls?.length || 0}`);
     
+    // Get qudemo details including user collection settings
+    const { createClient } = require('@supabase/supabase-js');
+    const supabase = createClient(
+      process.env.SUPABASE_URL,
+      process.env.SUPABASE_SERVICE_ROLE_KEY
+    );
+    
+    const { data: qudemoData, error: qudemoError } = await supabase
+      .from('qudemos_new')
+      .select('collect_user_info, collect_name, collect_email, collect_company')
+      .eq('id', qudemoId)
+      .single();
+    
+    if (qudemoError) {
+      console.warn(`⚠️ Could not fetch qudemo collection settings:`, qudemoError);
+    }
+    
+    console.log(`👤 User collection settings:`, qudemoData || 'Not available');
+    
     // Call Python backend to process content
     const pythonApiUrl = process.env.PYTHON_API_BASE_URL || process.env.PYTHON_API_URL || 'http://localhost:5001';
     const fetch = (await import('node-fetch')).default;
@@ -1339,7 +1461,11 @@ router.post('/process-content/:companyName/:qudemoId', authenticateToken, async 
       },
       body: JSON.stringify({
         video_urls: video_urls || [],
-        website_urls: website_urls || []
+        website_urls: website_urls || [],
+        collect_user_info: qudemoData?.collect_user_info || false,
+        collect_name: qudemoData?.collect_name || false,
+        collect_email: qudemoData?.collect_email || false,
+        collect_company: qudemoData?.collect_company || false
       }),
       // Set a very long timeout for Python backend processing (30 minutes)
       signal: AbortSignal.timeout(30 * 60 * 1000)
