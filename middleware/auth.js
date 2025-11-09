@@ -72,6 +72,7 @@ const authenticateToken = async (req, res, next) => {
             console.log('✅ Supabase token verified for user:', supabaseUser.id);
             req.user = {
                 userId: supabaseUser.id,
+                id: supabaseUser.id, // Add 'id' for compatibility with controllers
                 email: supabaseUser.email,
                 role: 'user' // Default role for OAuth users
             };

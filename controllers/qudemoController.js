@@ -653,6 +653,11 @@ const createQudemo = async (req, res) => {
       collect_name: collectUserInfo ? (collectName || false) : false,
       collect_email: collectUserInfo ? (collectEmail || false) : false,
       collect_company: collectUserInfo ? (collectCompany || false) : false,
+      // Video generation tracking
+      avatar_generation_status: 'not_started',
+      avatar_videos_total: 0,
+      avatar_videos_completed: 0,
+      has_avatar_videos: false,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     };
@@ -2382,11 +2387,60 @@ const uploadPresenterPhoto = async (req, res) => {
 };
 
 // HeyGen callback handler for avatar video generation
+// Supports both official HeyGen webhook format and custom format
 const heygenCallback = async (req, res) => {
   try {
-    const { qudemoId, faqId, heygenVideoUrl, heygenVideoId, status } = req.body;
+    console.log('📹 HeyGen Webhook received:', JSON.stringify(req.body, null, 2));
     
-    console.log(`📹 HeyGen callback received for QuDemo: ${qudemoId}, FAQ: ${faqId}`);
+    let qudemoId, faqId, heygenVideoUrl, heygenVideoId, status, eventType;
+    
+    // Check if this is HeyGen's official webhook format
+    if (req.body.event_type && req.body.event_data) {
+      eventType = req.body.event_type;
+      const eventData = req.body.event_data;
+      
+      console.log(`📹 HeyGen official webhook: ${eventType}`);
+      
+      // Extract video_id and url from HeyGen payload
+      heygenVideoId = eventData.video_id;
+      heygenVideoUrl = eventData.url;
+      
+      // Determine status from event_type
+      if (eventType === 'avatar_video.success') {
+        status = 'completed';
+      } else if (eventType === 'avatar_video.fail') {
+        status = 'failed';
+        console.error(`❌ HeyGen video generation failed: ${eventData.msg}`);
+      }
+      
+      // Look up qudemoId and faqId from avatar_videos table using heygen_video_id
+      const { data: videoRecord, error: lookupError } = await supabase
+        .from('avatar_videos')
+        .select('qudemo_id, faq_id')
+        .eq('heygen_video_id', heygenVideoId)
+        .single();
+      
+      if (lookupError || !videoRecord) {
+        console.error(`❌ Could not find video record for heygen_video_id: ${heygenVideoId}`);
+        return res.status(404).json({
+          success: false,
+          error: 'Video record not found for this heygen_video_id'
+        });
+      }
+      
+      qudemoId = videoRecord.qudemo_id;
+      faqId = videoRecord.faq_id;
+      
+    } else {
+      // Custom format (backward compatibility)
+      qudemoId = req.body.qudemoId;
+      faqId = req.body.faqId;
+      heygenVideoUrl = req.body.heygenVideoUrl;
+      heygenVideoId = req.body.heygenVideoId;
+      status = req.body.status || 'completed';
+    }
+    
+    console.log(`📹 Processing callback for QuDemo: ${qudemoId}, FAQ: ${faqId}`);
     console.log(`📊 Status: ${status}, Video URL: ${heygenVideoUrl}`);
     
     if (!qudemoId || !faqId) {
@@ -2433,12 +2487,20 @@ const heygenCallback = async (req, res) => {
       const allCompleted = allVideos.every(v => v.status === 'completed');
       
       if (allCompleted) {
+        // Get QuDemo details for notification
+        const { data: qudemo } = await supabase
+          .from('qudemos_new')
+          .select('name, company_id, companies(user_id)')
+          .eq('id', qudemoId)
+          .single();
+        
         const { error: qudemoUpdateError } = await supabase
           .from('qudemos_new')
           .update({
             avatar_generation_status: 'completed',
             has_avatar_videos: true,
             avatar_videos_completed: completedVideos,
+            avatar_videos_total: totalVideos,
             avatar_generation_completed_at: new Date().toISOString(),
             updated_at: new Date().toISOString()
           })
@@ -2448,6 +2510,23 @@ const heygenCallback = async (req, res) => {
           console.error(`❌ Error updating QuDemo status: ${qudemoUpdateError.message}`);
         } else {
           console.log(`🎉 All avatar videos completed for QuDemo: ${qudemoId}`);
+          
+          // Create notification for user
+          if (qudemo && qudemo.companies?.user_id) {
+            const { error: notifError } = await supabase.rpc('create_video_notification', {
+              p_qudemo_id: qudemoId,
+              p_user_id: qudemo.companies.user_id,
+              p_notification_type: 'all_completed',
+              p_title: '🎉 Avatar Videos Ready!',
+              p_message: `All ${totalVideos} avatar videos for "${qudemo.name}" have been generated successfully and are ready to use.`
+            });
+            
+            if (notifError) {
+              console.error(`⚠️ Failed to create notification: ${notifError.message}`);
+            } else {
+              console.log(`✅ Notification created for user`);
+            }
+          }
         }
       } else {
         // Update progress
@@ -2456,6 +2535,7 @@ const heygenCallback = async (req, res) => {
           .update({
             avatar_generation_status: 'processing',
             avatar_videos_completed: completedVideos,
+            avatar_videos_total: totalVideos,
             updated_at: new Date().toISOString()
           })
           .eq('id', qudemoId);
@@ -2478,6 +2558,190 @@ const heygenCallback = async (req, res) => {
     return res.status(500).json({
       success: false,
       error: error.message || 'Failed to process HeyGen callback'
+    });
+  }
+};
+
+// Get video generation progress for a QuDemo
+const getVideoGenerationProgress = async (req, res) => {
+  try {
+    const { qudemoId } = req.params;
+    const userId = req.user.id;
+
+    console.log(`📊 Fetching video generation progress for QuDemo: ${qudemoId}`);
+    console.log(`🔍 User ID from req.user: ${userId}`);
+
+    // Verify QuDemo belongs to user's company
+    const { data: qudemo, error: qudemoError } = await supabase
+      .from('qudemos_new')
+      .select(`
+        id,
+        name,
+        avatar_generation_status,
+        avatar_videos_total,
+        avatar_videos_completed,
+        avatar_generation_started_at,
+        avatar_generation_completed_at,
+        companies!inner(user_id)
+      `)
+      .eq('id', qudemoId)
+      .eq('companies.user_id', userId)
+      .single();
+
+    if (qudemoError || !qudemo) {
+      return res.status(404).json({
+        success: false,
+        error: 'QuDemo not found or unauthorized'
+      });
+    }
+
+    // ✅ SIMPLE PROGRESS CALCULATION
+    const total = qudemo.avatar_videos_total || 0;
+    const completed = qudemo.avatar_videos_completed || 0;
+    const percentage = total > 0 ? Math.round((completed / total) * 100) : 0;
+
+    console.log(`📊 Progress: ${completed}/${total} = ${percentage}%`);
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        qudemo_id: qudemo.id,
+        qudemo_name: qudemo.name,
+        status: qudemo.avatar_generation_status,
+        progress: {
+          total: total,
+          completed: completed,
+          percentage: percentage
+        },
+        started_at: qudemo.avatar_generation_started_at,
+        completed_at: qudemo.avatar_generation_completed_at
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error getting video generation progress:', error);
+    return res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to fetch video generation progress'
+    });
+  }
+};
+
+// Get user notifications
+const getUserNotifications = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { unread_only } = req.query;
+
+    console.log(`🔔 Fetching notifications for user: ${userId}`);
+
+    let query = supabase
+      .from('video_generation_notifications')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(50);
+
+    if (unread_only === 'true') {
+      query = query.eq('is_read', false);
+    }
+
+    const { data: notifications, error } = await query;
+
+    if (error) {
+      console.error(`❌ Error fetching notifications: ${error.message}`);
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to fetch notifications'
+      });
+    }
+
+    const unreadCount = notifications.filter(n => !n.is_read).length;
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        notifications: notifications || [],
+        unread_count: unreadCount
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error getting notifications:', error);
+    return res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to fetch notifications'
+    });
+  }
+};
+
+// Mark notification as read
+const markNotificationAsRead = async (req, res) => {
+  try {
+    const { notificationId } = req.params;
+    const userId = req.user.id;
+
+    console.log(`✅ Marking notification as read: ${notificationId}`);
+
+    const { error } = await supabase
+      .from('video_generation_notifications')
+      .update({ is_read: true })
+      .eq('id', notificationId)
+      .eq('user_id', userId);
+
+    if (error) {
+      console.error(`❌ Error marking notification as read: ${error.message}`);
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to mark notification as read'
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Notification marked as read'
+    });
+
+  } catch (error) {
+    console.error('❌ Error marking notification as read:', error);
+    return res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to mark notification as read'
+    });
+  }
+};
+
+// Mark all notifications as read
+const markAllNotificationsAsRead = async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    console.log(`✅ Marking all notifications as read for user: ${userId}`);
+
+    const { error } = await supabase
+      .from('video_generation_notifications')
+      .update({ is_read: true })
+      .eq('user_id', userId)
+      .eq('is_read', false);
+
+    if (error) {
+      console.error(`❌ Error marking all notifications as read: ${error.message}`);
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to mark all notifications as read'
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'All notifications marked as read'
+    });
+
+  } catch (error) {
+    console.error('❌ Error marking all notifications as read:', error);
+    return res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to mark all notifications as read'
     });
   }
 };
@@ -2815,6 +3079,10 @@ module.exports = {
   uploadPresenterPhoto,
   presenterPhotoUpload, // Export multer middleware
   heygenCallback,
+  getVideoGenerationProgress,
+  getUserNotifications,
+  markNotificationAsRead,
+  markAllNotificationsAsRead,
   generateWidgetCode,
   getWidgetConfig,
   getVisitorInteractions

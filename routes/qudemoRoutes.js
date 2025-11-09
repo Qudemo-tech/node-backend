@@ -33,6 +33,10 @@ const {
   uploadPresenterPhoto,
   presenterPhotoUpload,
   heygenCallback,
+  getVideoGenerationProgress,
+  getUserNotifications,
+  markNotificationAsRead,
+  markAllNotificationsAsRead,
   generateWidgetCode,
   getWidgetConfig,
   getVisitorInteractions
@@ -555,8 +559,24 @@ router.post('/', authenticateToken, createQudemo);
 // Upload presenter photo for avatar video generation
 router.post('/upload-presenter-photo', authenticateToken, presenterPhotoUpload.single('presenterPhoto'), uploadPresenterPhoto);
 
-// HeyGen callback for avatar video generation (no auth - called by Zapier)
+// HeyGen callback for avatar video generation (no auth - called by HeyGen webhook)
+// Handle OPTIONS request for HeyGen webhook validation
+router.options('/heygen-callback', (req, res) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, X-HeyGen-Signature');
+  res.status(200).send();
+});
+
 router.post('/heygen-callback', heygenCallback);
+
+// Video generation progress tracking (requires auth)
+router.get('/video-progress/:qudemoId', authenticateToken, getVideoGenerationProgress);
+
+// Notifications (requires auth)
+router.get('/notifications', authenticateToken, getUserNotifications);
+router.put('/notifications/:notificationId/read', authenticateToken, markNotificationAsRead);
+router.put('/notifications/mark-all-read', authenticateToken, markAllNotificationsAsRead);
 
 // Update qudemo
 router.put('/:id', authenticateToken, updateQudemo);
