@@ -40,10 +40,18 @@ app.set('trust proxy', 1);
 // Rate limiting
 const limiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 200, // limit each IP to 200 requests per windowMs
+    max: 1000, // Increased to 1000 requests per 15 minutes (was 200)
     message: 'Too many requests from this IP, please try again later.',
     standardHeaders: true,
     legacyHeaders: false,
+    skip: (req) => {
+        // Skip rate limiting for public widget endpoints and development
+        const isPublicEndpoint = req.path.includes('/public/') || 
+                                req.path.includes('/widget-config/') ||
+                                req.path.includes('/shared/');
+        const isDevelopment = process.env.NODE_ENV === 'development';
+        return isPublicEndpoint || isDevelopment;
+    }
 });
 
 // Security middleware
