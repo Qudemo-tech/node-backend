@@ -40,6 +40,55 @@ class DocumentController {
     // GCS operations will be handled by Python backend
   }
 
+  // Create document record in database
+  async createDocument(req, res) {
+    try {
+      const { documentId, qudemoId, filename, mimeType, fileSize } = req.body;
+
+      console.log(`📝 Creating document record: ${documentId} for QuDemo: ${qudemoId}`);
+
+      // Create document record in Supabase
+      const { data: document, error: documentError } = await supabase
+        .from('qudemo_documents')
+        .insert({
+          id: documentId,
+          qudemo_id: qudemoId,
+          filename: filename,
+          file_type: mimeType,  // Column is 'file_type' not 'mime_type'
+          file_size: fileSize,
+          upload_status: 'processing',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        })
+        .select()
+        .single();
+
+      if (documentError) {
+        console.error(`❌ Error creating document record:`, documentError);
+        return res.status(500).json({
+          success: false,
+          error: 'Failed to create document record',
+          details: documentError.message
+        });
+      }
+
+      console.log(`✅ Document record created successfully: ${documentId}`);
+
+      return res.status(200).json({
+        success: true,
+        document: document
+      });
+
+    } catch (error) {
+      console.error('❌ Create document error:', error);
+      return res.status(500).json({
+        success: false,
+        error: 'Internal server error',
+        details: error.message
+      });
+    }
+  }
+
   // Upload document to QuDemo
   async uploadDocument(req, res) {
     try {

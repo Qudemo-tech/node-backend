@@ -5,6 +5,19 @@ const { authenticateToken } = require('../middleware/auth');
 
 const documentController = new DocumentController();
 
+// Create document record in database (called by Python backend)
+router.post('/create', async (req, res) => {
+  try {
+    await documentController.createDocument(req, res);
+  } catch (error) {
+    console.error('❌ Create document error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error'
+    });
+  }
+});
+
 // Upload document to QuDemo
 router.post('/:qudemoId/upload', authenticateToken, upload.single('file'), async (req, res) => {
   try {
