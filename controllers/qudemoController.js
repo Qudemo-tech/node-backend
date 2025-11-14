@@ -2349,11 +2349,13 @@ const uploadPresenterPhoto = async (req, res) => {
 
     const photoUrl = pythonResponse.data.presenter_photo_url;
 
-    // Update QuDemo record with presenter photo URL
+    // Update QuDemo record with presenter photo URL and set avatar generation status to pending
     const { error: updateError } = await supabase
       .from('qudemos_new')
       .update({
         presenter_photo_url: photoUrl,
+        avatar_generation_status: 'pending',
+        avatar_generation_started_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       })
       .eq('id', qudemoId);
