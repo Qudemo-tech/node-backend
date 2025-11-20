@@ -48,6 +48,8 @@ class QAController {
                     title, 
                     description, 
                     company_id,
+                    is_active,
+                    status,
                     companies!inner(name)
                 `)
                 .eq('id', qudemoId)
@@ -57,6 +59,16 @@ class QAController {
                 return res.status(404).json({
                     success: false,
                     error: 'Qudemo not found'
+                });
+            }
+
+            // Check if qudemo is active
+            if (!qudemo.is_active || qudemo.status !== 'active') {
+                console.log(`❌ Qudemo is disabled: ${qudemo.title} (is_active: ${qudemo.is_active}, status: ${qudemo.status})`);
+                return res.status(403).json({
+                    success: false,
+                    error: 'This QuDemo has been disabled and is not currently available',
+                    disabled: true
                 });
             }
 

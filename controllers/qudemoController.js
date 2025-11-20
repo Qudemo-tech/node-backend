@@ -500,6 +500,10 @@ const createQudemo = async (req, res) => {
     const { title, description, companyId, videos, knowledgeSources, calendlyLink, voiceId, collectUserInfo, collectName, collectEmail, collectCompany } = req.body;
     const authUserId = req.user.userId || req.user.id;
 
+    // Log voice ID for debugging
+    console.log('🎤 Received voice ID:', voiceId);
+    console.log('🎤 Voice ID type:', typeof voiceId);
+
     // First try to find user by Database ID (for local JWT tokens)
     console.log('🔍 createQudemo: Looking up user by ID:', authUserId);
     let { data: userData, error: userError } = await supabase
@@ -663,13 +667,14 @@ const createQudemo = async (req, res) => {
     };
 
     console.log('🎯 Attempting to create qudemo with data:', qudemoData);
+    console.log('🎤 Voice ID being saved to database:', qudemoData.voice_id);
     
     const { data: qudemo, error: qudemoError } = await supabase
       .from('qudemos_new')
       .insert(qudemoData)
       .select()
       .single();
-
+    
     if (qudemoError) {
       console.error('❌ Error creating qudemo:', qudemoError);
       console.error('❌ Error details:', {
@@ -686,6 +691,7 @@ const createQudemo = async (req, res) => {
     }
     
     console.log('✅ Qudemo created successfully:', qudemo);
+    console.log('🎤 Voice ID saved in database:', qudemo.voice_id);
 
     const qudemoId = qudemo.id;
 
