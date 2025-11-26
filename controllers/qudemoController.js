@@ -497,7 +497,7 @@ const deleteQudemoCompletely = async (qudemoId) => {
 // Create new qudemo
 const createQudemo = async (req, res) => {
   try {
-    const { title, description, companyId, videos, knowledgeSources, calendlyLink, voiceId, collectUserInfo, collectName, collectEmail, collectCompany } = req.body;
+    const { title, description, companyId, videos, knowledgeSources, calendlyLink, voiceId, collectUserInfo, collectName, collectEmail, collectCompany, useLiveAvatar, liveAvatarId, liveAvatarVoiceId, avatarQuality } = req.body;
     const authUserId = req.user.userId || req.user.id;
 
     // Log voice ID for debugging
@@ -657,6 +657,11 @@ const createQudemo = async (req, res) => {
       collect_name: collectUserInfo ? (collectName || false) : false,
       collect_email: collectUserInfo ? (collectEmail || false) : false,
       collect_company: collectUserInfo ? (collectCompany || false) : false,
+      // LiveAvatar Configuration (NEW)
+      use_live_avatar: useLiveAvatar || false,
+      live_avatar_id: useLiveAvatar ? liveAvatarId : null,
+      live_avatar_voice_id: useLiveAvatar ? liveAvatarVoiceId : null,
+      avatar_quality: useLiveAvatar ? (avatarQuality || 'medium') : 'medium',
       // Video generation tracking
       avatar_generation_status: 'not_started',
       avatar_videos_total: 0,

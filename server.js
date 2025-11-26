@@ -22,6 +22,7 @@ const qaRoutes = require('./routes/qaRoutes');
 const logRoutes = require('./routes/logRoutes');
 const documentRoutes = require('./routes/documentRoutes');
 const subscriptionRoutes = require('./routes/subscriptionRoutes');
+const liveAvatarRoutes = require('./routes/liveavatar');
 // PoToken routes removed - using direct VM access
 
 // Import middleware
@@ -152,6 +153,7 @@ app.use('/api/settings', settingsRoutes);
 app.use('/api/qa', qaRoutes);
 app.use('/api/logs', logRoutes);
 app.use('/api/documents', documentRoutes);
+app.use('/api/liveavatar', liveAvatarRoutes);
 // PoToken routes removed - using direct VM access
 
 // 404 handler
